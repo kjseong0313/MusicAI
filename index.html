@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>🎵 MusicAI</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a26;--accent:#c8ff00;--accent2:#7c3aed;--text:#f0f0f0;--muted:#555;--border:rgba(200,255,0,0.15);--card:rgba(255,255,255,0.04)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-serif;min-height:100vh;overflow-x:hidden}
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1rem;background:rgba(10,10,15,.98);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);flex-shrink:0}
+.hdr-logo{font-family:'Bebas Neue',sans-serif;font-size:1.5rem;letter-spacing:4px;color:var(--accent)}
+.hdr-right{display:flex;gap:.5rem;align-items:center}
+.hdr-pill{display:flex;align-items:center;gap:.35rem;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.35rem .75rem;font-size:.72rem;color:var(--accent);cursor:pointer;transition:all .2s;user-select:none;white-space:nowrap}
+.hdr-pill:hover{background:rgba(200,255,0,.1)}
+.hdr-pill.key-ok{border-color:rgba(200,255,0,.5)}
+.hdr-pill.key-none{border-color:rgba(255,100,100,.3);color:#f87171}
+.pill-dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 2s infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* OVERLAYS */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:999;display:none;align-items:flex-end;justify-content:center}
+.overlay.open{display:flex}
+.sheet{background:var(--bg2);border:1px solid var(--border);border-radius:24px 24px 0 0;padding:1.5rem;width:100%;max-width:500px}
+.sheet-title{font-size:.7rem;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:1rem}
+.mopt{display:flex;align-items:center;gap:.9rem;padding:.9rem;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:var(--card);margin-bottom:.6rem;cursor:pointer;transition:all .2s}
+.mopt:hover{border-color:var(--accent);background:rgba(200,255,0,.05)}
+.mopt.sel{border-color:var(--accent);background:rgba(200,255,0,.1)}
+.mopt-icon{font-size:1.3rem;width:34px;text-align:center;flex-shrink:0}
+.mopt-info{flex:1}
+.mopt-name{font-weight:600;font-size:.88rem;margin-bottom:.15rem}
+.mopt-desc{font-size:.72rem;color:var(--muted)}
+.mopt-right{display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0}
+.mbadge{font-size:.62rem;padding:.2rem .5rem;border-radius:6px;background:rgba(200,255,0,.15);color:var(--accent)}
+.mrpm{font-size:.62rem;color:var(--muted);white-space:nowrap}
+.key-popup-title{font-size:.7rem;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:1rem}
+.key-hint{font-size:.75rem;color:var(--muted);margin-bottom:.8rem}
+.key-hint a{color:var(--accent);text-decoration:none}
+.key-input-wrap{display:flex;gap:.5rem;margin-bottom:.8rem}
+.key-input-wrap input{flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:.85rem 1rem;color:var(--text);font-size:.9rem;font-family:'DM Mono',monospace;outline:none;transition:border .2s}
+.key-input-wrap input:focus{border-color:var(--accent)}
+.key-input-wrap input::placeholder{color:var(--muted)}
+.key-save-btn{background:var(--accent);color:#000;border:none;border-radius:12px;padding:.85rem 1.2rem;font-weight:700;font-size:.9rem;cursor:pointer;white-space:nowrap;font-family:'Noto Sans KR',sans-serif}
+.sheet-cancel{width:100%;padding:.85rem;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:transparent;color:var(--muted);font-size:.88rem;cursor:pointer;font-family:'Noto Sans KR',sans-serif;transition:all .2s;margin-top:.3rem}
+.sheet-cancel:hover{border-color:#f44;color:#f44}
+
+/* TABS */
+.tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{flex:1;padding:.85rem;text-align:center;font-size:.78rem;color:var(--muted);cursor:pointer;transition:all .2s;border-bottom:2px solid transparent;font-family:'Noto Sans KR',sans-serif}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* TAB CONTENT */
+.tc{display:none;flex:1;flex-direction:column;overflow:hidden}
+.tc.active{display:flex}
+
+/* SEARCH */
+.search-wrap{padding:1rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.sbar{display:flex;gap:.6rem;margin-bottom:.7rem}
+.sbar input{flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.75rem 1rem;color:var(--text);font-size:1rem;font-family:'Noto Sans KR',sans-serif;outline:none;transition:border .2s}
+.sbar input:focus{border-color:var(--accent)}
+.sbar input::placeholder{color:var(--muted)}
+.sbar button{background:var(--accent);color:#000;border:none;border-radius:12px;padding:.75rem 1.1rem;font-size:1rem;cursor:pointer;font-weight:700;transition:all .2s}
+.sbar button:hover{background:#d4ff33}
+.tbts{display:flex;gap:.5rem}
+.tbt{flex:1;padding:.45rem;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:transparent;color:var(--muted);font-size:.78rem;cursor:pointer;transition:all .2s;font-family:'Noto Sans KR',sans-serif}
+.tbt.active{background:rgba(200,255,0,.15);border-color:var(--accent);color:var(--accent)}
+.results-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.results{flex:1;overflow-y:auto;padding:.8rem}
+.pagination{display:flex;align-items:center;justify-content:center;gap:.4rem;padding:.7rem;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg2)}
+.pg-btn{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.4rem .7rem;color:var(--muted);font-size:.78rem;cursor:pointer;transition:all .2s;font-family:'Noto Sans KR',sans-serif;min-width:32px;text-align:center}
+.pg-btn:hover{border-color:var(--accent);color:var(--accent)}
+.pg-btn.active{background:rgba(200,255,0,.15);border-color:var(--accent);color:var(--accent);font-weight:700}
+.pg-btn:disabled{opacity:.3;cursor:not-allowed}
+.breadcrumb{display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.bc-btn{background:none;border:none;color:var(--accent);cursor:pointer;font-size:.8rem;font-family:'Noto Sans KR',sans-serif;padding:0}
+.bc-sep{color:var(--muted);font-size:.75rem}
+.bc-cur{font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ri{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:.9rem;margin-bottom:.7rem;cursor:pointer;transition:all .2s;display:flex;gap:.9rem;align-items:center}
+.ri:hover{border-color:var(--accent);background:rgba(200,255,0,.05)}
+.ri-img{width:52px;height:52px;border-radius:8px;background:var(--bg3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.4rem;overflow:hidden}
+.ri-img img{width:100%;height:100%;object-fit:cover}
+.ri-info{flex:1;min-width:0}
+.ri-title{font-weight:500;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:.25rem}
+.ri-sub{font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ri-badge{font-size:.65rem;padding:.2rem .5rem;border-radius:6px;background:rgba(124,58,237,.3);color:#a78bfa;flex-shrink:0}
+
+/* ANALYSIS */
+.ana-hdr{padding:1rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.ana-now{display:flex;align-items:center;gap:.8rem}
+.ana-cover{width:52px;height:52px;border-radius:10px;background:var(--bg3);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+.ana-cover img{width:100%;height:100%;object-fit:cover}
+.ana-meta{flex:1;min-width:0}
+.ana-title{font-weight:700;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ana-artist{font-size:.8rem;color:var(--muted)}
+.ana-empty{color:var(--muted);font-size:.85rem}
+.ana-btns{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;padding:1rem;flex-shrink:0}
+.ana-btn{padding:.85rem;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:var(--card);color:var(--text);font-size:.85rem;font-family:'Noto Sans KR',sans-serif;cursor:pointer;transition:all .2s;text-align:left;display:flex;flex-direction:column;gap:.25rem}
+.ana-btn:hover:not(:disabled){border-color:var(--accent);background:rgba(200,255,0,.05)}
+.ana-btn.active{border-color:var(--accent);background:rgba(200,255,0,.08)}
+.ana-btn:disabled{opacity:.3;cursor:not-allowed}
+.ana-btn-icon{font-size:1.1rem}
+.ana-btn-label{font-weight:600;font-size:.82rem}
+.ana-btn-desc{font-size:.7rem;color:var(--muted)}
+.ana-content{flex:1;overflow-y:auto;padding:1rem}
+
+/* RESULT */
+.result-box{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:1rem}
+.result-box-title{font-size:.65rem;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:.8rem}
+.result-text{font-size:.9rem;line-height:1.8;color:#ddd;white-space:pre-wrap}
+.lyric-plain{font-size:.9rem;color:#ddd;line-height:2.1;white-space:pre-line}
+.lyric-line{margin-bottom:.8rem;padding-bottom:.8rem;border-bottom:1px solid rgba(255,255,255,.05)}
+.lyric-line:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.lyric-orig{font-size:.9rem;color:#ddd;line-height:1.6}
+.lyric-ko{font-size:.85rem;color:#a78bfa;line-height:1.6;margin-top:.2rem}
+.lyric-explain{font-size:.82rem;color:#86efac;line-height:1.6;margin-top:.3rem;padding:.4rem .6rem;background:rgba(134,239,172,.06);border-radius:6px;border-left:2px solid rgba(134,239,172,.3)}
+
+/* CHAT */
+.chat-hdr{padding:1rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.chat-now{display:flex;align-items:center;gap:.8rem}
+.chat-cover{width:36px;height:36px;border-radius:8px;background:var(--bg3);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:1rem}
+.chat-cover img{width:100%;height:100%;object-fit:cover}
+.chat-meta{flex:1;min-width:0}
+.chat-track{font-weight:600;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-sub{font-size:.75rem;color:var(--muted)}
+.chat-area{flex:1;overflow-y:auto;padding:.8rem;display:flex;flex-direction:column;gap:.6rem}
+.bbl{max-width:82%;padding:.7rem .9rem;border-radius:14px;font-size:.86rem;line-height:1.6;white-space:pre-wrap}
+.bbl.u{background:var(--accent);color:#000;align-self:flex-end;border-bottom-right-radius:4px;font-weight:500}
+.bbl.a{background:var(--bg3);color:#ddd;align-self:flex-start;border-bottom-left-radius:4px;border:1px solid rgba(255,255,255,.06)}
+.chat-bar{display:flex;gap:.6rem;padding:.8rem;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.chat-bar input{flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.7rem .9rem;color:var(--text);font-size:.9rem;font-family:'Noto Sans KR',sans-serif;outline:none;transition:border .2s}
+.chat-bar input:focus{border-color:var(--accent)}
+.chat-send{background:var(--accent2);border:none;border-radius:12px;padding:.7rem 1rem;color:#fff;font-size:1.1rem;cursor:pointer;transition:all .2s}
+.chat-send:hover{background:#6d28d9}
+
+/* UTILS */
+.loading{display:flex;align-items:center;justify-content:center;padding:2rem;color:var(--muted);font-size:.88rem;gap:.7rem}
+.spin{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{padding:3rem 1rem;text-align:center;color:var(--muted);font-size:.88rem}
+.empty .ico{font-size:2.5rem;margin-bottom:.8rem}
+.retry-msg{color:var(--accent);font-size:.85rem;text-align:center;padding:1rem}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div class="hdr-logo">MUSICAI</div>
+    <div class="hdr-right">
+      <div class="hdr-pill" id="model-pill" onclick="openModelSheet()">
+        <div class="pill-dot"></div>
+        <span id="pill-lbl">⚡ Lite 3.1</span>
+        <span style="color:var(--muted);font-size:.6rem">▾</span>
+      </div>
+      <div class="hdr-pill key-none" id="key-pill" onclick="openKeyPopup()">
+        <span id="key-icon">🔑</span>
+        <span>API 키</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODEL SHEET -->
+  <div class="overlay" id="model-overlay" onclick="if(event.target===this)closeOverlay('model-overlay')">
+    <div class="sheet">
+      <div class="sheet-title">🤖 Gemini 모델 선택 (무료)</div>
+      <div class="mopt" id="o-lite31" onclick="selModel('gemini-3.1-flash-lite','⚡ Lite 3.1')">
+        <div class="mopt-icon">⚡</div>
+        <div class="mopt-info"><div class="mopt-name">Gemini 3.1 Flash Lite</div><div class="mopt-desc">가장 빠름 · 일일 한도 최고</div></div>
+        <div class="mopt-right"><div class="mbadge">무료</div><div class="mrpm">분당 15회 · 일일 500회</div></div>
+      </div>
+      <div class="mopt" id="o-flash25" onclick="selModel('gemini-2.5-flash','🔥 Flash 2.5')">
+        <div class="mopt-icon">🔥</div>
+        <div class="mopt-info"><div class="mopt-name">Gemini 2.5 Flash</div><div class="mopt-desc">균형잡힌 성능 · 분석 추천</div></div>
+        <div class="mopt-right"><div class="mbadge">무료</div><div class="mrpm">분당 5회 · 일일 20회</div></div>
+      </div>
+      <div class="mopt" id="o-flash3" onclick="selModel('gemini-3-flash-preview','🚀 Flash 3')">
+        <div class="mopt-icon">🚀</div>
+        <div class="mopt-info"><div class="mopt-name">Gemini 3 Flash</div><div class="mopt-desc">최신 모델 · 깊은 해석에 강함</div></div>
+        <div class="mopt-right"><div class="mbadge">무료</div><div class="mrpm">분당 5회 · 일일 20회</div></div>
+      </div>
+      <div class="mopt" id="o-lite25" onclick="selModel('gemini-2.5-flash-lite','✨ Lite 2.5')">
+        <div class="mopt-icon">✨</div>
+        <div class="mopt-info"><div class="mopt-name">Gemini 2.5 Flash Lite</div><div class="mopt-desc">가볍고 빠름</div></div>
+        <div class="mopt-right"><div class="mbadge">무료</div><div class="mrpm">분당 10회 · 일일 20회</div></div>
+      </div>
+      <button class="sheet-cancel" onclick="closeOverlay('model-overlay')">취소</button>
+    </div>
+  </div>
+
+  <!-- API KEY POPUP -->
+  <div class="overlay" id="key-overlay" onclick="if(event.target===this)closeOverlay('key-overlay')">
+    <div class="sheet">
+      <div class="key-popup-title">🔑 Gemini API 키 입력</div>
+      <div class="key-hint"><a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a> 에서 무료 발급</div>
+      <div class="key-input-wrap">
+        <input type="password" id="key-input" placeholder="AIzaSy..." onkeydown="if(event.key==='Enter')saveKey()">
+        <button class="key-save-btn" onclick="saveKey()">저장</button>
+      </div>
+      <button class="sheet-cancel" onclick="closeOverlay('key-overlay')">취소</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" id="tab-s" onclick="goTab('s')">🔍 검색</div>
+    <div class="tab" id="tab-a" onclick="goTab('a')">🎵 분석</div>
+    <div class="tab" id="tab-c" onclick="goTab('c')">💬 대화</div>
+  </div>
+
+  <!-- SEARCH TAB -->
+  <div class="tc active" id="tc-s">
+    <div class="search-wrap">
+      <div class="sbar">
+        <input type="text" id="sq" placeholder="곡, 앨범, 아티스트..." onkeydown="if(event.key==='Enter')doSearch()">
+        <button onclick="doSearch()">검색</button>
+      </div>
+      <div class="tbts">
+        <button class="tbt active" id="t-song" onclick="setType('song')">🎵 곡</button>
+        <button class="tbt" id="t-album" onclick="setType('album')">💿 앨범</button>
+        <button class="tbt" id="t-musicArtist" onclick="setType('musicArtist')">🎤 아티스트</button>
+      </div>
+    </div>
+    <!-- breadcrumb -->
+    <div class="breadcrumb" id="breadcrumb" style="display:none">
+      <button class="bc-btn" id="bc-back" onclick="bcBack()">← 뒤로</button>
+      <span class="bc-sep">›</span>
+      <span class="bc-cur" id="bc-cur"></span>
+    </div>
+    <div class="results-wrap">
+      <div class="results" id="results">
+        <div class="empty"><div class="ico">🎵</div>곡, 앨범, 아티스트를 검색해보세요</div>
+      </div>
+      <div class="pagination" id="pagination" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ANALYSIS TAB -->
+  <div class="tc" id="tc-a" style="flex-direction:column">
+    <div class="ana-hdr">
+      <div class="ana-now" id="ana-now">
+        <div class="ana-empty">검색 탭에서 곡을 선택해주세요</div>
+      </div>
+    </div>
+    <div class="ana-btns">
+      <button class="ana-btn" id="btn-desc" onclick="doSection('desc')">
+        <div class="ana-btn-icon">📖</div>
+        <div class="ana-btn-label">곡 설명</div>
+        <div class="ana-btn-desc">AI 세세 분석</div>
+      </button>
+      <button class="ana-btn" id="btn-lyrics" onclick="doSection('lyrics')">
+        <div class="ana-btn-icon">🎤</div>
+        <div class="ana-btn-label">가사</div>
+        <div class="ana-btn-desc">원문 가사</div>
+      </button>
+      <button class="ana-btn" id="btn-trans" onclick="doSection('trans')" disabled>
+        <div class="ana-btn-icon">🌐</div>
+        <div class="ana-btn-label">가사 번역</div>
+        <div class="ana-btn-desc">가사 먼저 필요</div>
+      </button>
+      <button class="ana-btn" id="btn-interp" onclick="doSection('interp')" disabled>
+        <div class="ana-btn-icon">🔍</div>
+        <div class="ana-btn-label">가사 해석</div>
+        <div class="ana-btn-desc">번역 먼저 필요</div>
+      </button>
+    </div>
+    <div class="ana-content" id="ana-content">
+      <div class="empty"><div class="ico">👆</div>위 버튼을 눌러 분석을 시작하세요</div>
+    </div>
+  </div>
+
+  <!-- CHAT TAB -->
+  <div class="tc" id="tc-c" style="flex-direction:column">
+    <div class="chat-hdr">
+      <div class="chat-now" id="chat-now">
+        <div class="chat-meta">
+          <div class="chat-track" id="chat-track-name">선택된 곡 없음</div>
+          <div class="chat-sub">곡을 선택하면 그 곡에 대해 자유롭게 대화할 수 있어요</div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-area" id="chat-area">
+      <div class="bbl a">안녕하세요! 검색 탭에서 곡을 선택한 후 음악에 대해 뭐든 물어보세요 🎵</div>
+    </div>
+    <div class="chat-bar">
+      <input type="text" id="chat-input" placeholder="궁금한 거 물어보세요..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="chat-send" onclick="sendChat()">↑</button>
+    </div>
+  </div>
+
+</div>
+<script>
+const S={
+  key:localStorage.getItem('ma_key')||'',
+  model:localStorage.getItem('ma_model')||'gemini-3.1-flash-lite',
+  pill:localStorage.getItem('ma_pill')||'⚡ Lite 3.1',
+  stype:'song',
+  track:null,
+  cache:{},
+  chatHist:[],
+  // 검색 상태
+  searchResults:[],
+  currentPage:0,
+  pageSize:10,
+  browseStack:[] // [{label, items, isTrackList}]
+};
+
+const MMAP={'o-lite31':'gemini-3.1-flash-lite','o-flash25':'gemini-2.5-flash','o-flash3':'gemini-3-flash-preview','o-lite25':'gemini-2.5-flash-lite'};
+
+window.onload=function(){
+  document.getElementById('pill-lbl').textContent=S.pill;
+  updateKeyPill();
+};
+
+// ── KEY / MODEL ──
+function updateKeyPill(){
+  const pill=document.getElementById('key-pill');
+  document.getElementById('key-icon').textContent=S.key?'✅':'🔑';
+  pill.className=S.key?'hdr-pill key-ok':'hdr-pill key-none';
+}
+function openModelSheet(){
+  Object.entries(MMAP).forEach(([id,m])=>document.getElementById(id).classList.toggle('sel',m===S.model));
+  document.getElementById('model-overlay').classList.add('open');
+}
+function openKeyPopup(){
+  document.getElementById('key-input').value=S.key;
+  document.getElementById('key-overlay').classList.add('open');
+  setTimeout(()=>document.getElementById('key-input').focus(),200);
+}
+function closeOverlay(id){document.getElementById(id).classList.remove('open');}
+function selModel(model,pill){
+  S.model=model;S.pill=pill;
+  localStorage.setItem('ma_model',model);localStorage.setItem('ma_pill',pill);
+  document.getElementById('pill-lbl').textContent=pill;
+  closeOverlay('model-overlay');
+}
+function saveKey(){
+  const k=document.getElementById('key-input').value.trim();
+  if(!k)return;
+  S.key=k;localStorage.setItem('ma_key',k);
+  updateKeyPill();closeOverlay('key-overlay');
+}
+
+// ── TABS ──
+function goTab(n){
+  ['s','a','c'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('active',t===n);
+    document.getElementById('tc-'+t).classList.toggle('active',t===n);
+  });
+}
+function setType(t){
+  S.stype=t;
+  document.querySelectorAll('.tbt').forEach(b=>b.classList.remove('active'));
+  document.getElementById('t-'+t).classList.add('active');
+  // 브레드크럼 리셋
+  S.browseStack=[];
+  hideBreadcrumb();
+}
+
+// ── BREADCRUMB ──
+function showBreadcrumb(label){
+  document.getElementById('breadcrumb').style.display='flex';
+  document.getElementById('bc-cur').textContent=label;
+}
+function hideBreadcrumb(){
+  document.getElementById('breadcrumb').style.display='none';
+}
+function bcBack(){
+  S.browseStack.pop();
+  if(S.browseStack.length===0){
+    hideBreadcrumb();
+    renderResults(S.searchResults,0);
+  }else{
+    const prev=S.browseStack[S.browseStack.length-1];
+    showBreadcrumb(prev.label);
+    renderList(prev.items, prev.isTrackList, prev.artistName);
+  }
+}
+
+// ── SEARCH ──
+async function doSearch(){
+  const q=document.getElementById('sq').value.trim();if(!q)return;
+  S.browseStack=[];hideBreadcrumb();
+  const area=document.getElementById('results');
+  area.innerHTML='<div class="loading"><div class="spin"></div>검색 중...</div>';
+  document.getElementById('pagination').style.display='none';
+  try{
+    const res=await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${S.stype}&limit=50&country=KR`);
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    S.searchResults=data.results||[];
+    if(!S.searchResults.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>검색 결과가 없습니다</div>';return;}
+    renderResults(S.searchResults,0);
+  }catch(e){area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>검색 실패: ${esc(e.message)}</div>`;}
+}
+
+function renderResults(items,page){
+  S.currentPage=page;
+  const start=page*S.pageSize;
+  const slice=items.slice(start,start+S.pageSize);
+  const area=document.getElementById('results');
+  area.innerHTML='';
+  slice.forEach(item=>area.appendChild(makeResultItem(item)));
+  // 페이지네이션
+  const totalPages=Math.ceil(items.length/S.pageSize);
+  const pg=document.getElementById('pagination');
+  if(totalPages<=1){pg.style.display='none';return;}
+  pg.style.display='flex';
+  pg.innerHTML='';
+  // 이전
+  const prevBtn=document.createElement('button');
+  prevBtn.className='pg-btn';prevBtn.textContent='←';
+  prevBtn.disabled=page===0;
+  prevBtn.onclick=()=>renderResults(items,page-1);
+  pg.appendChild(prevBtn);
+  // 페이지 번호
+  const maxShow=5;
+  let startP=Math.max(0,page-2);
+  let endP=Math.min(totalPages-1,startP+maxShow-1);
+  if(endP-startP<maxShow-1)startP=Math.max(0,endP-maxShow+1);
+  for(let i=startP;i<=endP;i++){
+    const btn=document.createElement('button');
+    btn.className='pg-btn'+(i===page?' active':'');
+    btn.textContent=i+1;
+    const pi=i;btn.onclick=()=>renderResults(items,pi);
+    pg.appendChild(btn);
+  }
+  // 다음
+  const nextBtn=document.createElement('button');
+  nextBtn.className='pg-btn';nextBtn.textContent='→';
+  nextBtn.disabled=page>=totalPages-1;
+  nextBtn.onclick=()=>renderResults(items,page+1);
+  pg.appendChild(nextBtn);
+}
+
+function makeResultItem(item){
+  const div=document.createElement('div');div.className='ri';
+  div.onclick=()=>selectItem(item);
+  let title='',sub='',badge='',img='';
+  if(S.stype==='song'){
+    title=item.trackName||'';sub=(item.artistName||'')+' · '+(item.collectionName||'');
+    badge=item.releaseDate?.substring(0,4)||'';img=item.artworkUrl60||'';
+  }else if(S.stype==='album'){
+    title=item.collectionName||'';sub=item.artistName||'';
+    badge=item.trackCount?item.trackCount+'곡':'';img=item.artworkUrl60||'';
+  }else{
+    title=item.artistName||'';sub=item.primaryGenreName||'';
+  }
+  div.innerHTML=`<div class="ri-img">${img?`<img src="${img}" loading="lazy">`:'🎵'}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(sub)}</div></div>${badge?`<div class="ri-badge">${esc(String(badge))}</div>`:''}`;
+  return div;
+}
+
+async function selectItem(item){
+  // 곡 직접 선택
+  if(S.stype==='song'){
+    const art=(item.artworkUrl100||item.artworkUrl60||'').replace('100x100bb','600x600bb');
+    loadTrack(item.trackName,item.artistName,art);
+    return;
+  }
+  // 앨범 선택 → 트랙 목록
+  if(S.stype==='album'){
+    await loadAlbumTracks(item);
+    return;
+  }
+  // 아티스트 선택 → 앨범 목록
+  if(S.stype==='musicArtist'){
+    await loadArtistAlbums(item);
+    return;
+  }
+}
+
+async function loadAlbumTracks(album){
+  const area=document.getElementById('results');
+  area.innerHTML='<div class="loading"><div class="spin"></div>트랙 목록 불러오는 중...</div>';
+  document.getElementById('pagination').style.display='none';
+  const label=album.collectionName||'앨범';
+  showBreadcrumb(label);
+  try{
+    const res=await fetch(`https://itunes.apple.com/lookup?id=${album.collectionId}&entity=song&country=KR`);
+    const d=await res.json();
+    const allResults=d.results||[];
+    console.log('iTunes lookup 결과 총:', allResults.length, '개');
+    console.log('collectionId:', album.collectionId);
+    if(allResults.length>0) console.log('첫번째 항목 wrapperType:', allResults[0].wrapperType, 'kind:', allResults[0].kind);
+    if(allResults.length>1) console.log('두번째 항목 wrapperType:', allResults[1].wrapperType, 'kind:', allResults[1].kind, 'trackName:', allResults[1].trackName);
+    
+    // 다양한 방식으로 트랙 추출 시도
+    let finalTracks=allResults.filter(r=>r.wrapperType==='track');
+    if(!finalTracks.length) finalTracks=allResults.filter(r=>r.kind==='song');
+    if(!finalTracks.length) finalTracks=allResults.filter(r=>r.trackName&&r.trackNumber);
+    if(!finalTracks.length) finalTracks=allResults.slice(1); // 첫번째(앨범 정보) 제외 전부
+    finalTracks=finalTracks.sort((a,b)=>(a.trackNumber||0)-(b.trackNumber||0));
+    console.log('최종 트랙 수:', finalTracks.length);
+    
+    const art=(album.artworkUrl100||album.artworkUrl60||'').replace('100x100bb','600x600bb');
+    S.browseStack.push({label,items:finalTracks,isTrackList:true,artistName:album.artistName||'',artUrl:art});
+    renderList(finalTracks,true,album.artistName||'',art);
+  }catch(e){
+    area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>트랙 목록 실패: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadArtistAlbums(artist){
+  const area=document.getElementById('results');
+  area.innerHTML='<div class="loading"><div class="spin"></div>앨범 불러오는 중...</div>';
+  document.getElementById('pagination').style.display='none';
+  const label=artist.artistName||'아티스트';
+  showBreadcrumb(label);
+  try{
+    const res=await fetch(`https://itunes.apple.com/lookup?id=${artist.artistId}&entity=album&limit=20&country=KR`);
+    const d=await res.json();
+    const albums=(d.results||[]).filter(r=>r.wrapperType==='collection');
+    S.browseStack.push({label,items:albums,isTrackList:false,artistName:artist.artistName});
+    renderList(albums,false,artist.artistName);
+  }catch(e){
+    area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>앨범 목록 실패: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderList(items,isTrackList,artistName,artUrl){
+  const area=document.getElementById('results');
+  area.innerHTML='';
+  if(!items.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>항목이 없습니다</div>';return;}
+  items.forEach((item,idx)=>{
+    const div=document.createElement('div');div.className='ri';
+    if(isTrackList){
+      // 트랙 아이템
+      const trackArt=(artUrl||'')||(item.artworkUrl100||item.artworkUrl60||'').replace('100x100bb','600x600bb');
+      div.onclick=()=>loadTrack(item.trackName,artistName||item.artistName,trackArt);
+      div.innerHTML=`<div class="ri-img" style="font-size:.85rem;color:var(--muted);font-family:'DM Mono',monospace;font-weight:600">${item.trackNumber||idx+1}</div><div class="ri-info"><div class="ri-title">${esc(item.trackName||'')}</div><div class="ri-sub">${item.trackTimeMillis?fmtMs(item.trackTimeMillis):''}</div></div>`;
+    }else{
+      // 앨범 아이템 (아티스트 드릴다운)
+      const img=item.artworkUrl60||'';
+      div.onclick=()=>loadAlbumTracks(item);
+      const albumImg=item.artworkUrl60||item.artworkUrl100||'';
+      div.innerHTML=`<div class="ri-img">${albumImg?`<img src="${albumImg}" loading="lazy">`:'💿'}</div><div class="ri-info"><div class="ri-title">${esc(item.collectionName||'')}</div><div class="ri-sub">${item.releaseDate?.substring(0,4)||''} ${item.trackCount?'· '+item.trackCount+'곡':''}</div></div>`;
+    }
+    area.appendChild(div);
+  });
+}
+
+// ── LOAD TRACK ──
+function loadTrack(title,artist,artUrl){
+  S.track={title,artist,artUrl,lyrics:null};
+  S.cache={};
+  // 분석탭 업데이트
+  document.getElementById('ana-now').innerHTML=`
+    <div class="ana-cover">${artUrl?`<img src="${artUrl}">`:'🎵'}</div>
+    <div class="ana-meta"><div class="ana-title">${esc(title)}</div><div class="ana-artist">${esc(artist)}</div></div>`;
+  document.querySelectorAll('.ana-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-trans').disabled=true;
+  document.getElementById('btn-interp').disabled=true;
+  document.getElementById('btn-trans').querySelector('.ana-btn-desc').textContent='가사 먼저 필요';
+  document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='번역 먼저 필요';
+  document.getElementById('ana-content').innerHTML='<div class="empty"><div class="ico">👆</div>위 버튼을 눌러 분석을 시작하세요</div>';
+  // 대화탭 업데이트
+  document.getElementById('chat-track-name').textContent=`${title} — ${artist}`;
+  document.getElementById('chat-now').innerHTML=`
+    <div class="chat-cover">${artUrl?`<img src="${artUrl}">`:'🎵'}</div>
+    <div class="chat-meta"><div class="chat-track">${esc(title)}</div><div class="chat-sub">${esc(artist)}</div></div>`;
+  S.chatHist=[];
+  const chatArea=document.getElementById('chat-area');
+  chatArea.innerHTML=`<div class="bbl a">🎵 <b>${esc(title)}</b>에 대해 뭐든 물어보세요!</div>`;
+  goTab('a');
+  fetchLyrics(artist,title);
+}
+
+// ── LYRICS ──
+async function fetchLyrics(artist,title){
+  try{
+    const res=await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+    const d=await res.json();
+    if(d.lyrics?.trim())S.track.lyrics=d.lyrics.trim();
+  }catch{}
+}
+
+// ── SECTIONS ──
+async function doSection(type){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  if(type!=='lyrics'&&!S.key){openKeyPopup();return;}
+  document.querySelectorAll('.ana-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+type).classList.add('active');
+  if(S.cache[type]){renderResult(type,S.cache[type]);return;}
+  const content=document.getElementById('ana-content');
+
+  if(type==='lyrics'){
+    if(!S.track.lyrics){
+      content.innerHTML='<div class="loading"><div class="spin"></div>가사 불러오는 중...</div>';
+      await fetchLyrics(S.track.artist,S.track.title);
+    }
+    if(S.track.lyrics){
+      S.cache.lyrics=S.track.lyrics;
+      renderResult('lyrics',S.track.lyrics);
+      document.getElementById('btn-trans').disabled=false;
+      document.getElementById('btn-trans').querySelector('.ana-btn-desc').textContent='원문 / 번역 포맷';
+    }else{
+      content.innerHTML=`<div class="empty"><div class="ico">😢</div>가사를 찾을 수 없습니다<br><a href="https://genius.com/search?q=${encodeURIComponent(S.track.artist+' '+S.track.title)}" target="_blank" style="color:var(--accent);font-size:.8rem;margin-top:.5rem;display:inline-block">Genius에서 찾기 →</a></div>`;
+    }
+    return;
+  }
+
+  if(type==='desc'){
+    content.innerHTML='<div class="loading"><div class="spin"></div>곡 설명 생성 중...</div>';
+    const prompt=`다음 곡에 대해 세세하고 깊이 있게 설명해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+다음을 모두 포함해서 설명해주세요:
+- 이 곡의 배경과 제작 스토리
+- 음악적 특징 (장르, 분위기, 악기, 구성 등)
+- 아티스트 커리어에서 이 곡의 위치와 의미
+- 음악사적/문화적 의의
+- 이 곡이 유명한 이유, 대중과 평론가의 반응
+- 가사의 전반적인 주제와 메시지
+
+한국어로 풍부하고 세세하게 설명해주세요.`;
+    try{const r=await callGemini(prompt,'ana-content');S.cache.desc=r;renderResult('desc',r);}
+    catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
+    return;
+  }
+
+  if(!S.track.lyrics){
+    content.innerHTML='<div class="loading"><div class="spin"></div>가사 불러오는 중...</div>';
+    await fetchLyrics(S.track.artist,S.track.title);
+    if(!S.track.lyrics){content.innerHTML='<div class="empty"><div class="ico">😢</div>가사를 찾을 수 없습니다</div>';return;}
+  }
+
+  if(type==='trans'){
+    content.innerHTML='<div class="loading"><div class="spin"></div>가사 번역 중...</div>';
+    const prompt=`다음 곡의 가사를 한 줄씩 번역해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【출력 규칙】
+- 원문 가사 한 줄, 바로 아래 줄에 한국어 번역
+- 빈 줄(섹션 구분)은 그대로 유지
+- 번역문만 출력 (제목, 설명, 머리말 없이 바로 시작)
+- 자연스럽고 감성을 살린 번역
+
+【가사 전문 - 이 가사를 정확히 사용하세요】
+${S.track.lyrics}`;
+    try{
+      const r=await callGemini(prompt,'ana-content');
+      S.cache.trans=r;
+      renderResult('trans',r);
+      document.getElementById('btn-interp').disabled=false;
+      document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='원문 / 번역 / 해석';
+    }catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
+    return;
+  }
+
+  if(type==='interp'){
+    content.innerHTML='<div class="loading"><div class="spin"></div>가사 해석 중...</div>';
+    const prompt=`다음 곡의 가사를 한 줄씩 깊이 있게 해석해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【출력 규칙】
+- 원본 가사 한 줄
+- 바로 아래: 한국어 번역
+- 바로 아래: "💬 " 로 시작하는 해석 (그 줄의 의미, 뉘앙스, 상징, 감정, 문화적 맥락 등을 풍부하게)
+- 빈 줄(섹션 구분)은 그대로 유지
+- 머리말 없이 바로 시작
+
+형식 예시:
+I saw the lights go out
+나는 불이 꺼지는 것을 보았다
+💬 단순한 물리적 묘사처럼 보이지만, 희망이나 관계의 종말을 암시하는 상징적 표현...
+
+【원본 가사 - 정확히 이 가사를 사용하세요】
+${S.track.lyrics}
+
+【참고용 번역】
+${S.cache.trans||''}`;
+    try{const r=await callGemini(prompt,'ana-content');S.cache.interp=r;renderResult('interp',r);}
+    catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
+    return;
+  }
+}
+
+function renderResult(type,text){
+  const content=document.getElementById('ana-content');
+  if(type==='lyrics'){
+    content.innerHTML=`<div class="result-box"><div class="result-box-title">🎤 가사</div><div class="lyric-plain">${esc(text)}</div></div>`;
+    return;
+  }
+  if(type==='desc'){
+    content.innerHTML=`<div class="result-box"><div class="result-box-title">📖 곡 설명</div><div class="result-text">${esc(text)}</div></div>`;
+    return;
+  }
+  if(type==='trans'){
+    const lines=text.split('\n');
+    let html='<div class="result-box"><div class="result-box-title">🌐 가사 번역</div>';
+    let i=0;
+    while(i<lines.length){
+      const l=lines[i]||'';
+      if(!l.trim()){html+='<div style="height:.5rem"></div>';i++;continue;}
+      const n=lines[i+1]||'';
+      if(n.trim()&&!n.startsWith('💬')){
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l)}</div><div class="lyric-ko">${esc(n)}</div></div>`;i+=2;
+      }else{
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l)}</div></div>`;i++;
+      }
+    }
+    content.innerHTML=html+'</div>';return;
+  }
+  if(type==='interp'){
+    const lines=text.split('\n');
+    let html='<div class="result-box"><div class="result-box-title">🔍 가사 해석</div>';
+    let i=0;
+    while(i<lines.length){
+      const l0=lines[i]||'';
+      if(!l0.trim()){html+='<div style="height:.6rem"></div>';i++;continue;}
+      if(l0.startsWith('💬')){html+=`<div class="lyric-explain">${esc(l0)}</div>`;i++;continue;}
+      const l1=lines[i+1]||'';
+      const l2=lines[i+2]||'';
+      if(l1.trim()&&!l1.startsWith('💬')&&l2.startsWith('💬')){
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l0)}</div><div class="lyric-ko">${esc(l1)}</div><div class="lyric-explain">${esc(l2)}</div></div>`;i+=3;
+      }else if(l1.startsWith('💬')){
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l0)}</div><div class="lyric-explain">${esc(l1)}</div></div>`;i+=2;
+      }else{
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l0)}</div></div>`;i++;
+      }
+    }
+    content.innerHTML=html+'</div>';return;
+  }
+}
+
+// ── CHAT ──
+async function sendChat(){
+  if(!S.key){openKeyPopup();return;}
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const inp=document.getElementById('chat-input');
+  const msg=inp.value.trim();if(!msg)return;
+  inp.value='';
+  const area=document.getElementById('chat-area');
+  addBbl(area,msg,'u');
+  S.chatHist.push({role:'user',parts:[{text:msg}]});
+  const ld=document.createElement('div');ld.className='bbl a';
+  ld.innerHTML='<div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div>';
+  area.appendChild(ld);area.scrollTop=area.scrollHeight;
+  try{
+    const ctx=`현재 곡: ${S.track.title} — ${S.track.artist}\n${S.track.lyrics?'가사:\n'+S.track.lyrics.substring(0,3000):''}`;
+    const sysMsg=`당신은 음악 전문가 AI입니다. 현재 다음 곡에 대해 대화 중입니다:\n${ctx}\n\n이 곡에 대한 질문에 깊이 있게 한국어로 답변하세요.`;
+    const reply=await callGemini(msg,null,S.chatHist.slice(-14),sysMsg);
+    area.removeChild(ld);addBbl(area,reply,'a');
+    S.chatHist.push({role:'model',parts:[{text:reply}]});
+  }catch(e){area.removeChild(ld);addBbl(area,'오류: '+e.message,'a');}
+}
+function addBbl(c,t,r){const d=document.createElement('div');d.className='bbl '+r;d.textContent=t;c.appendChild(d);c.scrollTop=c.scrollHeight;}
+
+// ── GEMINI ──
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+async function callGemini(prompt,statusElId=null,history=[],sysOverride=null,retries=4){
+  await sleep(1000);
+  const sysText=sysOverride||'당신은 음악 전문가 AI입니다. 가사 분석, 번역, 음악 역사에 대한 깊이 있는 통찰을 제공합니다. 한국어로 답변하세요.';
+  for(let i=0;i<retries;i++){
+    try{
+      const res=await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${S.model}:generateContent?key=${S.key}`,
+        {method:'POST',headers:{'Content-Type':'application/json'},
+         body:JSON.stringify({
+           contents:[...history,{role:'user',parts:[{text:prompt}]}],
+           systemInstruction:{parts:[{text:sysText}]},
+           generationConfig:{temperature:0.8,maxOutputTokens:65536}
+         })}
+      );
+      const d=await res.json();
+      if(d.error?.code===429){
+        const wait=[15,30,60,120][i]||60;
+        if(statusElId){const el=document.getElementById(statusElId);if(el)el.innerHTML=`<div class="retry-msg">⏳ 한도 초과. ${wait}초 후 재시도... (${i+1}/${retries})</div>`;}
+        await sleep(wait*1000);continue;
+      }
+      if(d.error)throw new Error(d.error.message);
+      return d.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    }catch(e){if(i===retries-1)throw e;await sleep(5000);}
+  }
+  throw new Error('요청 한도 초과. 잠시 후 다시 시도해주세요.');
+}
+
+function fmtMs(ms){const s=Math.floor(ms/1000);return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+</script>
+</body>
+</html>
