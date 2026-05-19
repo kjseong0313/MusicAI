@@ -2,11 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "musicai",
   "compatibility_date": "2026-05-19",
+  "main": "src/index.js",
   "observability": {
     "enabled": true
-  },
-  "assets": {
-    "directory": "."
   },
   "compatibility_flags": [
     "nodejs_compat"
