@@ -310,52 +310,45 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 
 </div>
 <script>
-// 다중 소스 검색
+// 다중 소스 검색 (Worker 경유 → 직접 → MusicBrainz)
 async function itunesSearch(q, stype){
-  const itunesUrl=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${stype}&limit=50&country=KR`;
-  const sources=[
-    {name:'iTunes', url: itunesUrl},
-    {name:'iTunes (US)', url: itunesUrl.replace('country=KR','country=US')},
-    {name:'MusicBrainz', url: null}, // 별도 처리
-  ];
-
-  // iTunes KR 시도
+  // 1. Worker 통해서 iTunes (모바일에서도 작동)
   try{
-    const res=await fetch(sources[0].url, {signal:AbortSignal.timeout(5000)});
+    const url=`${WORKER_URL}/itunes?q=${encodeURIComponent(q)}&entity=${stype}&country=KR&limit=50`;
+    const res=await fetch(url, {signal:AbortSignal.timeout(6000)});
     if(res.ok){
       const data=await res.json();
       if(data.results?.length) return {results:data.results, source:'iTunes'};
     }
   }catch{}
 
-  // iTunes US 시도
+  // 2. 직접 iTunes (PC에서는 됨)
   try{
-    const res=await fetch(sources[1].url, {signal:AbortSignal.timeout(5000)});
+    const url=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${stype}&limit=50&country=KR`;
+    const res=await fetch(url, {signal:AbortSignal.timeout(5000)});
     if(res.ok){
       const data=await res.json();
-      if(data.results?.length) return {results:data.results, source:'iTunes (US)'};
+      if(data.results?.length) return {results:data.results, source:'iTunes (직접)'};
     }
   }catch{}
 
-  // MusicBrainz 시도 (곡/아티스트만)
+  // 3. MusicBrainz (최후 수단)
   if(stype==='song'||stype==='musicArtist'){
     try{
       const mbType=stype==='song'?'recording':'artist';
-      const mbUrl=`https://musicbrainz.org/ws/2/${mbType}/?query=${encodeURIComponent(q)}&limit=20&fmt=json`;
-      const res=await fetch(mbUrl, {signal:AbortSignal.timeout(5000), headers:{'User-Agent':'MusicAI/1.0'}});
+      const url=`https://musicbrainz.org/ws/2/${mbType}/?query=${encodeURIComponent(q)}&limit=20&fmt=json`;
+      const res=await fetch(url, {signal:AbortSignal.timeout(5000), headers:{'User-Agent':'MusicAI/1.0'}});
       if(res.ok){
         const data=await res.json();
         const items=stype==='song'?(data.recordings||[]):(data.artists||[]);
         if(items.length){
-          // MusicBrainz 데이터를 iTunes 형식으로 변환
           const converted=items.map(item=>({
             trackName: item.title||item.name,
             artistName: item['artist-credit']?.[0]?.artist?.name||item.name,
             collectionName: item.releases?.[0]?.title||'',
-            releaseDate: item.releases?.[0]?.date||item['life-span']?.begin||'',
+            releaseDate: item.releases?.[0]?.date||'',
             artworkUrl60: '',
             wrapperType: stype==='song'?'track':'artist',
-            _source: 'MusicBrainz'
           }));
           return {results:converted, source:'MusicBrainz'};
         }
@@ -595,8 +588,14 @@ async function loadAlbumTracks(album){
   showBreadcrumb(label);
   try{
     const id=album.collectionId;
-    const url=`https://itunes.apple.com/lookup?id=${id}&entity=song&country=US&limit=200`;
-    const res=await fetch(url);
+    // Worker 경유 시도 → 직접 시도
+    let res;
+    try{
+      res=await fetch(`${WORKER_URL}/itunes-lookup?id=${id}&entity=song&country=US&limit=200`, {signal:AbortSignal.timeout(6000)});
+      if(!res.ok) throw new Error('worker fail');
+    }catch{
+      res=await fetch(`https://itunes.apple.com/lookup?id=${id}&entity=song&country=US&limit=200`);
+    }
     const d=await res.json();
     const allResults=d.results||[];
     let tracks=allResults.filter(r=>r.wrapperType==='track');
