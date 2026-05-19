@@ -199,15 +199,23 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <!-- KEY SELECT SHEET -->
   <div class="overlay" id="key-overlay" onclick="if(event.target===this)closeOverlay('key-overlay')">
     <div class="sheet">
-      <div class="sheet-title">🔑 API 키 선택</div>
-      <div class="mopt" id="k-opt-0" onclick="selectKey(0)">
+      <div class="sheet-title">🔑 API 키 설정</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:.8rem"><a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com</a> 에서 발급</div>
+      <div class="mopt" id="k-opt-0" onclick="selectKey(0)" style="cursor:default">
         <div class="mopt-icon">1️⃣</div>
-        <div class="mopt-info"><div class="mopt-name">키 1</div><div class="mopt-desc" id="k-desc-0">AIzaSyAlrV...</div></div>
+        <div class="mopt-info">
+          <div class="mopt-name">키 1 <span id="k-status-0" style="font-size:.7rem;color:var(--muted)"></span></div>
+          <input id="k-input-0" type="password" placeholder="AIzaSy..." style="width:100%;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.5rem .7rem;color:var(--text);font-size:.8rem;font-family:'DM Mono',monospace;outline:none;margin-top:.4rem" onclick="event.stopPropagation()">
+        </div>
       </div>
-      <div class="mopt" id="k-opt-1" onclick="selectKey(1)">
+      <div class="mopt" id="k-opt-1" onclick="selectKey(1)" style="cursor:default;margin-bottom:.8rem">
         <div class="mopt-icon">2️⃣</div>
-        <div class="mopt-info"><div class="mopt-name">키 2</div><div class="mopt-desc" id="k-desc-1">AIzaSyBSqO...</div></div>
+        <div class="mopt-info">
+          <div class="mopt-name">키 2 <span id="k-status-1" style="font-size:.7rem;color:var(--muted)"></span></div>
+          <input id="k-input-1" type="password" placeholder="AIzaSy..." style="width:100%;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.5rem .7rem;color:var(--text);font-size:.8rem;font-family:'DM Mono',monospace;outline:none;margin-top:.4rem" onclick="event.stopPropagation()">
+        </div>
       </div>
+      <button onclick="saveKeys()" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:12px;padding:.9rem;font-size:.95rem;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer;margin-bottom:.4rem">저장</button>
       <button class="sheet-cancel" onclick="closeOverlay('key-overlay')">취소</button>
     </div>
   </div>
@@ -221,7 +229,8 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 
   <!-- SEARCH TAB -->
   <div class="tc active" id="tc-s">
-    <div class="search-wrap">
+    <div id="search-source" style="display:none;font-size:.7rem;color:var(--muted);padding:.3rem 1rem;background:var(--bg2);letter-spacing:.5px"></div>
+  <div class="search-wrap">
       <div class="sbar">
         <input type="text" id="sq" placeholder="곡, 앨범, 아티스트..." onkeydown="if(event.key==='Enter')doSearch()">
         <button onclick="doSearch()">검색</button>
@@ -301,12 +310,24 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 
 </div>
 <script>
-const API_KEYS=['AIzaSyAlrVvlj3DeJTJ-LwnEy9ywPAuElKGpwNo','AIzaSyBSqOLLMA60VVgJd4y5Lsso9hEf5dst8KU'];
+// iTunes 검색
+async function itunesSearch(q, stype){
+  const url=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${stype}&limit=50&country=KR`;
+  const res=await fetch(url);
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data=await res.json();
+  return {results: data.results||[], source: 'iTunes'};
+}
+
+const API_KEYS=[
+  localStorage.getItem('ma_key1')||'',
+  localStorage.getItem('ma_key2')||''
+];
 let currentKeyIdx=0;
 
 const S={
   get key(){return API_KEYS[currentKeyIdx];},
-  set key(v){/* UI저장용 */localStorage.setItem('ma_key',v);},
+  set key(v){},
   model:localStorage.getItem('ma_model')||'gemini-3.1-flash-lite',
   pill:localStorage.getItem('ma_pill')||'⚡ Lite 3.1',
   stype:'song',
@@ -324,12 +345,15 @@ const MMAP={'o-lite31':'gemini-3.1-flash-lite','o-flash25':'gemini-2.5-flash','o
 window.onload=function(){
   document.getElementById('pill-lbl').textContent=S.pill;
   updateKeyPill();
+
 };
 
 // ── KEY / MODEL ──
 function updateKeyPill(){
+  // Worker가 키 관리 - 항상 연결됨
   const pill=document.getElementById('key-pill');
-  document.getElementById('key-icon').textContent='✅';
+  document.getElementById('key-icon').textContent='☁️';
+  document.getElementById('key-lbl').textContent='Worker';
   pill.className='hdr-pill key-ok';
 }
 function openModelSheet(){
@@ -337,16 +361,27 @@ function openModelSheet(){
   document.getElementById('model-overlay').classList.add('open');
 }
 function openKeySheet(){
-  // 현재 선택된 키 표시
-  document.getElementById('k-opt-0').classList.toggle('sel', currentKeyIdx===0);
-  document.getElementById('k-opt-1').classList.toggle('sel', currentKeyIdx===1);
+  document.getElementById('k-input-0').value=API_KEYS[0]||'';
+  document.getElementById('k-input-1').value=API_KEYS[1]||'';
+  document.getElementById('k-status-0').textContent=API_KEYS[0]?'✅':'미입력';
+  document.getElementById('k-status-1').textContent=API_KEYS[1]?'✅':'미입력';
   document.getElementById('key-overlay').classList.add('open');
 }
 
 function selectKey(idx){
-  currentKeyIdx=idx;
-  document.getElementById('key-lbl').textContent='키 '+(idx+1);
+  // 클릭시 해당 input에 포커스
+  document.getElementById('k-input-'+idx).focus();
+}
+
+function saveKeys(){
+  const k1=document.getElementById('k-input-0').value.trim();
+  const k2=document.getElementById('k-input-1').value.trim();
+  if(k1){API_KEYS[0]=k1;localStorage.setItem('ma_key1',k1);}
+  if(k2){API_KEYS[1]=k2;localStorage.setItem('ma_key2',k2);}
+  currentKeyIdx=API_KEYS[0]?0:1;
+  updateKeyPill();
   closeOverlay('key-overlay');
+  alert('저장 완료 ✅');
 }
 function closeOverlay(id){document.getElementById(id).classList.remove('open');}
 function selModel(model,pill){
@@ -400,22 +435,17 @@ async function doSearch(){
   const area=document.getElementById('results');
   area.innerHTML='<div class="loading"><div class="spin"></div>검색 중...</div>';
   document.getElementById('pagination').style.display='none';
+  document.getElementById('search-source').style.display='none';
   try{
-    const itunesUrl=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${S.stype}&limit=50&country=KR`;
-    let data;
-    try{
-      const res=await fetch(itunesUrl);
-      if(!res.ok)throw new Error('direct fail');
-      data=await res.json();
-    }catch{
-      // 직접 호출 실패시 프록시 사용
-      const res=await fetch(`https://corsproxy.io/?${encodeURIComponent(itunesUrl)}`);
-      if(!res.ok)throw new Error('HTTP '+res.status);
-      data=await res.json();
-    }
-    S.searchResults=data.results||[];
-    if(!S.searchResults.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>검색 결과가 없습니다</div>';return;}
-    renderResults(S.searchResults,0);
+    const {results, source}=await itunesSearch(q, S.stype);
+    S.searchResults=results;
+    S.searchSource=source;
+    if(!results.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>검색 결과가 없습니다</div>';return;}
+    // 출처 표시
+    const srcEl=document.getElementById('search-source');
+    srcEl.textContent='검색 출처: '+source;
+    srcEl.style.display='block';
+    renderResults(results,0);
   }catch(e){area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>검색 실패: ${esc(e.message)}</div>`;}
 }
 
@@ -463,35 +493,73 @@ function makeResultItem(item){
   div.onclick=()=>selectItem(item);
   let title='',sub='',badge='',img='';
   if(S.stype==='song'){
-    title=item.trackName||'';sub=(item.artistName||'')+' · '+(item.collectionName||'');
-    badge=item.releaseDate?.substring(0,4)||'';img=item.artworkUrl60||'';
+    title=item.trackName||'';
+    sub=(item.artistName||'')+' · '+(item.collectionName||'');
+    badge=item.releaseDate?.substring(0,4)||'';
+    img=item.artworkUrl60||'';
   }else if(S.stype==='album'){
-    title=item.collectionName||'';sub=item.artistName||'';
-    badge=item.trackCount?item.trackCount+'곡':'';img=item.artworkUrl60||'';
+    title=item.collectionName||'';
+    sub=item.artistName||'';
+    badge=item.trackCount?item.trackCount+'곡':'';
+    img=item.artworkUrl60||'';
   }else{
-    title=item.artistName||'';sub=item.primaryGenreName||'';
+    title=item.artistName||'';
+    sub=item.primaryGenreName||'';
+    img='';
   }
   div.innerHTML=`<div class="ri-img">${img?`<img src="${img}" loading="lazy">`:'🎵'}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(sub)}</div></div>${badge?`<div class="ri-badge">${esc(String(badge))}</div>`:''}`;
   return div;
 }
 
 async function selectItem(item){
-  // 곡 직접 선택
-  if(S.stype==='song'){
-    const art=(item.artworkUrl100||item.artworkUrl60||'').replace('100x100bb','600x600bb');
-    loadTrack(item.trackName,item.artistName,art);
+  const area=document.getElementById('results');
+
+  if(S.stype==='musicArtist'){
+    area.innerHTML='<div class="loading"><div class="spin"></div>앨범 불러오는 중...</div>';
+    document.getElementById('pagination').style.display='none';
+    const label=item.artistName||'';
+    showBreadcrumb(label);
+    try{
+      const url=`https://itunes.apple.com/lookup?id=${item.artistId}&entity=album&limit=20&country=US`;
+      const res=await fetch(url);
+      const d=await res.json();
+      const albums=(d.results||[]).filter(r=>r.wrapperType==='collection');
+      S.browseStack.push({label,items:albums,isTrackList:false,artistName:label});
+      renderList(albums,false,label);
+    }catch(e){area.innerHTML='<div class="empty"><div class="ico">⚠️</div>앨범을 불러올 수 없습니다</div>';}
     return;
   }
-  // 앨범 선택 → 트랙 목록
+
   if(S.stype==='album'){
     await loadAlbumTracks(item);
     return;
   }
-  // 아티스트 선택 → 앨범 목록
-  if(S.stype==='musicArtist'){
-    await loadArtistAlbums(item);
-    return;
-  }
+
+  // 곡 선택
+  const art=(item.artworkUrl100||item.artworkUrl60||'').replace('100x100bb','600x600bb');
+  loadTrack(item.trackName||'', item.artistName||'', art);
+}
+
+async function loadAlbumTracks(album){
+  const area=document.getElementById('results');
+  area.innerHTML='<div class="loading"><div class="spin"></div>트랙 목록 불러오는 중...</div>';
+  document.getElementById('pagination').style.display='none';
+  const label=album.collectionName||album.title||'앨범';
+  showBreadcrumb(label);
+  try{
+    const id=album.collectionId;
+    const url=`https://itunes.apple.com/lookup?id=${id}&entity=song&country=US&limit=200`;
+    const res=await fetch(url);
+    const d=await res.json();
+    const allResults=d.results||[];
+    let tracks=allResults.filter(r=>r.wrapperType==='track');
+    if(!tracks.length) tracks=allResults.filter(r=>r.kind==='song');
+    if(!tracks.length) tracks=allResults.slice(1).filter(r=>r.trackName);
+    tracks=tracks.sort((a,b)=>(a.trackNumber||0)-(b.trackNumber||0));
+    const art=(album.artworkUrl100||album.artworkUrl60||'').replace('100x100bb','600x600bb');
+    S.browseStack.push({label,items:tracks,isTrackList:true,artistName:album.artistName||'',artUrl:art});
+    renderList(tracks,true,album.artistName||'',art);
+  }catch(e){area.innerHTML='<div class="empty"><div class="ico">⚠️</div>트랙 목록을 불러올 수 없습니다</div>';}
 }
 
 async function loadAlbumTracks(album){
@@ -502,15 +570,7 @@ async function loadAlbumTracks(album){
   showBreadcrumb(label);
   try{
     const lookupUrl=`https://itunes.apple.com/lookup?id=${album.collectionId}&entity=song&country=US&limit=200`;
-    let d;
-    try{
-      const res=await fetch(lookupUrl);
-      if(!res.ok)throw new Error('direct fail');
-      d=await res.json();
-    }catch{
-      const res=await fetch(`https://corsproxy.io/?${encodeURIComponent(lookupUrl)}`);
-      d=await res.json();
-    }
+    const d=await itunesFetch(lookupUrl);
     const allResults=d.results||[];
     console.log('iTunes lookup 결과 총:', allResults.length, '개');
     console.log('collectionId:', album.collectionId);
@@ -541,15 +601,7 @@ async function loadArtistAlbums(artist){
   showBreadcrumb(label);
   try{
     const artistUrl=`https://itunes.apple.com/lookup?id=${artist.artistId}&entity=album&limit=20&country=US`;
-    let d;
-    try{
-      const res=await fetch(artistUrl);
-      if(!res.ok)throw new Error('direct fail');
-      d=await res.json();
-    }catch{
-      const res=await fetch(`https://corsproxy.io/?${encodeURIComponent(artistUrl)}`);
-      d=await res.json();
-    }
+    const d=await itunesFetch(artistUrl);
     const albums=(d.results||[]).filter(r=>r.wrapperType==='collection');
     S.browseStack.push({label,items:albums,isTrackList:false,artistName:artist.artistName});
     renderList(albums,false,artist.artistName);
@@ -565,16 +617,18 @@ function renderList(items,isTrackList,artistName,artUrl){
   items.forEach((item,idx)=>{
     const div=document.createElement('div');div.className='ri';
     if(isTrackList){
-      // 트랙 아이템
-      const trackArt=(artUrl||'')||(item.artworkUrl100||item.artworkUrl60||'').replace('100x100bb','600x600bb');
-      div.onclick=()=>loadTrack(item.trackName,artistName||item.artistName,trackArt);
-      div.innerHTML=`<div class="ri-img" style="font-size:.85rem;color:var(--muted);font-family:'DM Mono',monospace;font-weight:600">${item.trackNumber||idx+1}</div><div class="ri-info"><div class="ri-title">${esc(item.trackName||'')}</div><div class="ri-sub">${item.trackTimeMillis?fmtMs(item.trackTimeMillis):''}</div></div>`;
+      const title=item.trackName||item.title||'';
+      const dur=item.trackTimeMillis?fmtMs(item.trackTimeMillis):(item.duration||'');
+      const num=item.trackNumber||idx+1;
+      const trackArt=artUrl||(item.artworkUrl100||'').replace('100x100bb','600x600bb');
+      div.onclick=()=>loadTrack(title,artistName||item.artistName||'',trackArt);
+      div.innerHTML=`<div class="ri-img" style="font-size:.85rem;color:var(--muted);font-family:'DM Mono',monospace;font-weight:600">${num}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(dur)}</div></div>`;
     }else{
-      // 앨범 아이템 (아티스트 드릴다운)
+      const title=item.collectionName||item.title||'';
+      const year=item.releaseDate?.substring(0,4)||item.year||'';
       const img=item.artworkUrl60||'';
       div.onclick=()=>loadAlbumTracks(item);
-      const albumImg=item.artworkUrl60||item.artworkUrl100||'';
-      div.innerHTML=`<div class="ri-img">${albumImg?`<img src="${albumImg}" loading="lazy">`:'💿'}</div><div class="ri-info"><div class="ri-title">${esc(item.collectionName||'')}</div><div class="ri-sub">${item.releaseDate?.substring(0,4)||''} ${item.trackCount?'· '+item.trackCount+'곡':''}</div></div>`;
+      div.innerHTML=`<div class="ri-img">${img?`<img src="${img}" loading="lazy">`:'💿'}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(year)}</div></div>`;
     }
     area.appendChild(div);
   });
@@ -859,39 +913,42 @@ async function sendChat(){
 }
 function addBbl(c,t,r){const d=document.createElement('div');d.className='bbl '+r;d.textContent=t;c.appendChild(d);c.scrollTop=c.scrollHeight;}
 
-// ── GEMINI ──
+// ── GEMINI (Cloudflare Worker 경유) ──
+const WORKER_URL = 'https://musicai.kjseong0313.workers.dev';
+
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
-async function callGemini(prompt,statusElId=null,history=[],sysOverride=null,retries=4){
-  await sleep(1000);
-  const sysText=sysOverride||'당신은 음악 전문가 AI입니다. 가사 분석, 번역, 음악 역사에 대한 깊이 있는 통찰을 제공합니다. 한국어로 답변하세요.';
-  for(let i=0;i<retries;i++){
+
+async function callGemini(prompt, statusElId=null, history=[], sysOverride=null, retries=4, jsonMode=false){
+  await sleep(500);
+  const sysText = sysOverride || '당신은 음악 전문가 AI입니다. 가사 분석, 번역, 음악 역사에 대한 깊이 있는 통찰을 제공합니다. 한국어로 답변하세요.';
+
+  for(let i=0; i<retries; i++){
     try{
-      const res=await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${S.model}:generateContent?key=${S.key}`,
-        {method:'POST',headers:{'Content-Type':'application/json'},
-         body:JSON.stringify({
-           contents:[...history,{role:'user',parts:[{text:prompt}]}],
-           systemInstruction:{parts:[{text:sysText}]},
-           generationConfig:{temperature:0.8,maxOutputTokens:65536}
-         })}
-      );
-      const d=await res.json();
-      if(d.error?.code===429){
-        // 다음 키로 전환 시도
-        if(currentKeyIdx < API_KEYS.length-1){
-          currentKeyIdx++;
-          if(statusElId){const el=document.getElementById(statusElId);if(el)el.innerHTML=`<div class="retry-msg">⏳ 키 전환 중... (키 ${currentKeyIdx+1}/${API_KEYS.length})</div>`;}
-          continue;
-        }
-        // 모든 키 소진 → 대기
-        currentKeyIdx=0;
-        const wait=[15,30,60,120][i]||60;
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          model: S.model,
+          payload: {
+            contents: [...history, {role:'user', parts:[{text:prompt}]}],
+            systemInstruction: {parts:[{text:sysText}]},
+            generationConfig: {temperature: jsonMode?0.2:0.8, maxOutputTokens: jsonMode?4096:65536}
+          }
+        })
+      });
+      const d = await res.json();
+      if(d.error?.code === 429){
+        const wait = [15,30,60,120][i]||60;
         if(statusElId){const el=document.getElementById(statusElId);if(el)el.innerHTML=`<div class="retry-msg">⏳ 한도 초과. ${wait}초 후 재시도... (${i+1}/${retries})</div>`;}
-        await sleep(wait*1000);continue;
+        await sleep(wait*1000);
+        continue;
       }
-      if(d.error)throw new Error(d.error.message);
-      return d.candidates?.[0]?.content?.parts?.[0]?.text||'';
-    }catch(e){if(i===retries-1)throw e;await sleep(5000);}
+      if(d.error) throw new Error(d.error.message);
+      return d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }catch(e){
+      if(i===retries-1) throw e;
+      await sleep(3000);
+    }
   }
   throw new Error('요청 한도 초과. 잠시 후 다시 시도해주세요.');
 }
