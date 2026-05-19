@@ -390,10 +390,12 @@ window.onload=function(){
 
 // ── KEY / MODEL ──
 function updateKeyPill(){
-  // Worker가 키 관리 - 항상 연결됨
   const pill=document.getElementById('key-pill');
-  document.getElementById('key-icon').textContent='☁️';
-  document.getElementById('key-lbl').textContent='Worker';
+  if(!pill) return;
+  const icon=document.getElementById('key-icon');
+  const lbl=document.getElementById('key-lbl');
+  if(icon) icon.textContent='☁️';
+  if(lbl) lbl.textContent='Worker';
   pill.className='hdr-pill key-ok';
 }
 function openModelSheet(){
@@ -621,8 +623,15 @@ async function loadAlbumTracks(album){
   const label=album.collectionName||'앨범';
   showBreadcrumb(label);
   try{
-    const lookupUrl=`https://itunes.apple.com/lookup?id=${album.collectionId}&entity=song&country=US&limit=200`;
-    const d=await itunesFetch(lookupUrl);
+    const id=album.collectionId;
+    let res1;
+    try{
+      res1=await fetch(`${WORKER_URL}/itunes-lookup?id=${id}&entity=song&country=US&limit=200`,{signal:AbortSignal.timeout(6000)});
+      if(!res1.ok) throw new Error('fail');
+    }catch{
+      res1=await fetch(`https://itunes.apple.com/lookup?id=${id}&entity=song&country=US&limit=200`);
+    }
+    const d=await res1.json();
     const allResults=d.results||[];
     console.log('iTunes lookup 결과 총:', allResults.length, '개');
     console.log('collectionId:', album.collectionId);
@@ -652,8 +661,14 @@ async function loadArtistAlbums(artist){
   const label=artist.artistName||'아티스트';
   showBreadcrumb(label);
   try{
-    const artistUrl=`https://itunes.apple.com/lookup?id=${artist.artistId}&entity=album&limit=20&country=US`;
-    const d=await itunesFetch(artistUrl);
+    let res2;
+    try{
+      res2=await fetch(`${WORKER_URL}/itunes-lookup?id=${artist.artistId}&entity=album&country=US&limit=20`,{signal:AbortSignal.timeout(6000)});
+      if(!res2.ok) throw new Error('fail');
+    }catch{
+      res2=await fetch(`https://itunes.apple.com/lookup?id=${artist.artistId}&entity=album&limit=20&country=US`);
+    }
+    const d=await res2.json();
     const albums=(d.results||[]).filter(r=>r.wrapperType==='collection');
     S.browseStack.push({label,items:albums,isTrackList:false,artistName:artist.artistName});
     renderList(albums,false,artist.artistName);
