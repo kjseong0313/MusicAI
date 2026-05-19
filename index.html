@@ -560,8 +560,13 @@ async function selectItem(item){
     const label=item.artistName||'';
     showBreadcrumb(label);
     try{
-      const url=`https://itunes.apple.com/lookup?id=${item.artistId}&entity=album&limit=20&country=US`;
-      const res=await fetch(url);
+      let res;
+      try{
+        res=await fetch(`${WORKER_URL}/itunes-lookup?id=${item.artistId}&entity=album&country=US&limit=20`,{signal:AbortSignal.timeout(6000)});
+        if(!res.ok) throw new Error('fail');
+      }catch{
+        res=await fetch(`https://itunes.apple.com/lookup?id=${item.artistId}&entity=album&limit=20&country=US`);
+      }
       const d=await res.json();
       const albums=(d.results||[]).filter(r=>r.wrapperType==='collection');
       S.browseStack.push({label,items:albums,isTrackList:false,artistName:label});
@@ -588,11 +593,10 @@ async function loadAlbumTracks(album){
   showBreadcrumb(label);
   try{
     const id=album.collectionId;
-    // Worker 경유 시도 → 직접 시도
     let res;
     try{
-      res=await fetch(`${WORKER_URL}/itunes-lookup?id=${id}&entity=song&country=US&limit=200`, {signal:AbortSignal.timeout(6000)});
-      if(!res.ok) throw new Error('worker fail');
+      res=await fetch(`${WORKER_URL}/itunes-lookup?id=${id}&entity=song&country=US&limit=200`,{signal:AbortSignal.timeout(6000)});
+      if(!res.ok) throw new Error('fail');
     }catch{
       res=await fetch(`https://itunes.apple.com/lookup?id=${id}&entity=song&country=US&limit=200`);
     }
@@ -605,7 +609,9 @@ async function loadAlbumTracks(album){
     const art=(album.artworkUrl100||album.artworkUrl60||'').replace('100x100bb','600x600bb');
     S.browseStack.push({label,items:tracks,isTrackList:true,artistName:album.artistName||'',artUrl:art});
     renderList(tracks,true,album.artistName||'',art);
-  }catch(e){area.innerHTML='<div class="empty"><div class="ico">⚠️</div>트랙 목록을 불러올 수 없습니다</div>';}
+  }catch(e){
+    area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>트랙 목록 실패: ${esc(e.message)}</div>`;
+  }
 }
 
 async function loadAlbumTracks(album){
