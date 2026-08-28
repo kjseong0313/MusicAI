@@ -313,6 +313,8 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 <script>
 // 다중 소스 검색 (Worker 경유 → 직접 → MusicBrainz)
 async function itunesSearch(q, stype){
+  const dbg=[];
+
   // 1. Worker 통해서 iTunes (모바일에서도 작동)
   try{
     const url=`${WORKER_URL}/itunes?q=${encodeURIComponent(q)}&entity=${stype}&country=KR&limit=50`;
@@ -320,8 +322,11 @@ async function itunesSearch(q, stype){
     if(res.ok){
       const data=await res.json();
       if(data.results?.length) return {results:data.results, source:'iTunes'};
+      dbg.push(`Worker: ok but empty (${JSON.stringify(data).slice(0,120)})`);
+    }else{
+      dbg.push(`Worker: HTTP ${res.status}`);
     }
-  }catch{}
+  }catch(e){dbg.push(`Worker: ${e.name}: ${e.message}`);}
 
   // 2. 직접 iTunes (PC에서는 됨)
   try{
@@ -330,8 +335,11 @@ async function itunesSearch(q, stype){
     if(res.ok){
       const data=await res.json();
       if(data.results?.length) return {results:data.results, source:'iTunes (직접)'};
+      dbg.push(`직접: ok but empty`);
+    }else{
+      dbg.push(`직접: HTTP ${res.status}`);
     }
-  }catch{}
+  }catch(e){dbg.push(`직접: ${e.name}: ${e.message}`);}
 
   // 3. MusicBrainz (최후 수단)
   if(stype==='song'||stype==='musicArtist'){
@@ -353,11 +361,14 @@ async function itunesSearch(q, stype){
           }));
           return {results:converted, source:'MusicBrainz'};
         }
+        dbg.push(`MusicBrainz: ok but empty`);
+      }else{
+        dbg.push(`MusicBrainz: HTTP ${res.status}`);
       }
-    }catch{}
+    }catch(e){dbg.push(`MusicBrainz: ${e.name}: ${e.message}`);}
   }
 
-  throw new Error('모든 검색 소스 실패');
+  throw new Error('모든 검색 소스 실패 → '+dbg.join(' | '));
 }
 
 const API_KEYS=[
