@@ -321,10 +321,11 @@ async function itunesSearch(q, stype){
     const res=await fetch(url, {signal:AbortSignal.timeout(6000)});
     if(res.ok){
       const data=await res.json();
-      if(data.results?.length) return {results:data.results, source:'iTunes'};
+      if(data.results?.length) return {results:data.results, source:data.source||'iTunes'};
       dbg.push(`Worker: ok but empty (${JSON.stringify(data).slice(0,120)})`);
     }else{
-      dbg.push(`Worker: HTTP ${res.status}`);
+      const body=await res.text().catch(()=>'');
+      dbg.push(`Worker: HTTP ${res.status} ${body.slice(0,120)}`);
     }
   }catch(e){dbg.push(`Worker: ${e.name}: ${e.message}`);}
 
