@@ -325,7 +325,7 @@ async function itunesSearch(q, stype){
       dbg.push(`Worker: ok but empty (${JSON.stringify(data).slice(0,120)})`);
     }else{
       const body=await res.text().catch(()=>'');
-      dbg.push(`Worker: HTTP ${res.status} ${body.slice(0,120)}`);
+      dbg.push(`Worker: HTTP ${res.status} ${body.slice(0,300)}`);
     }
   }catch(e){dbg.push(`Worker: ${e.name}: ${e.message}`);}
 
@@ -492,7 +492,13 @@ async function doSearch(){
   document.getElementById('pagination').style.display='none';
   document.getElementById('search-source').style.display='none';
   try{
-    const {results, source}=await itunesSearch(q, S.stype);
+    let results, source;
+    try{
+      ({results, source}=await itunesSearch(q, S.stype));
+    }catch(e1){
+      area.innerHTML='<div class="loading"><div class="spin"></div>재시도 중...</div>';
+      ({results, source}=await itunesSearch(q, S.stype));
+    }
     S.searchResults=results;
     S.searchSource=source;
     if(!results.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>검색 결과가 없습니다</div>';return;}
