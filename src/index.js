@@ -87,6 +87,94 @@ async function musicBrainzSearch(q, limit) {
   return (json.recordings || []).map(mapMusicBrainzRecording);
 }
 
+const MB_HEADERS = { 'User-Agent': 'MusicAI/1.0 (https://kjseong0313.github.io)' };
+
+async function mbJson(url) {
+  const res = await fetch(url, { headers: MB_HEADERS });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`MusicBrainz HTTP ${res.status}: ${text.slice(0, 150)}`);
+  return JSON.parse(text);
+}
+
+// Deezer 게이트웨이가 간헐적으로 유효한 ID에도 빈 배열을 응답하는 버그가 있어,
+// 배열이 비어 있으면 몇 번 재시도한다 (ID 기반 조회는 결과가 진짜로 비어있을 일이 거의 없다).
+async function deezerFetchRetry(url, extract) {
+  let lastErr = '';
+  for (let i = 0; i < 3; i++) {
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
+      if (!res.ok) { lastErr = `HTTP ${res.status}: ${text.slice(0, 150)}`; }
+      else {
+        const json = JSON.parse(text);
+        if (json.error) { lastErr = `API error: ${JSON.stringify(json.error).slice(0, 150)}`; }
+        else {
+          const items = extract(json);
+          if (items.length) return items;
+          lastErr = 'empty response';
+        }
+      }
+    } catch (e) { lastErr = e.message; }
+    if (i < 2) await new Promise(r => setTimeout(r, 250));
+  }
+  throw new Error(`Deezer: ${lastErr}`);
+}
+
+// 가수 -> 앨범 목록 (Deezer)
+async function deezerArtistAlbums(id) {
+  const items = await deezerFetchRetry(`https://api.deezer.com/artist/${id}/albums?limit=100`, json => json.data || []);
+  return items.map(mapDeezerAlbum);
+}
+
+// 앨범 -> 트랙 목록 (Deezer)
+async function deezerAlbumTracks(id) {
+  const items = await deezerFetchRetry(`https://api.deezer.com/album/${id}`, json => json.tracks?.data || []);
+  return items.map((t, i) => ({
+    trackId: t.id,
+    trackName: t.title,
+    artistName: t.artist?.name || '',
+    trackNumber: t.track_position || i + 1,
+    trackTimeMillis: (t.duration || 0) * 1000,
+    previewUrl: t.preview || '',
+    wrapperType: 'track',
+    kind: 'song',
+  }));
+}
+
+// 가수 -> 앨범 목록 (MusicBrainz release-group)
+async function mbArtistAlbums(id) {
+  const json = await mbJson(`https://musicbrainz.org/ws/2/release-group?artist=${id}&type=album|ep&fmt=json&limit=100`);
+  return (json['release-groups'] || []).map(rg => ({
+    collectionId: rg.id,
+    collectionName: rg.title,
+    releaseDate: rg['first-release-date'] || '',
+    artworkUrl60: '',
+    artworkUrl100: '',
+    wrapperType: 'collection',
+  }));
+}
+
+// 앨범(release-group) -> 트랙 목록 (MusicBrainz)
+async function mbAlbumTracks(releaseGroupId) {
+  const json = await mbJson(`https://musicbrainz.org/ws/2/release?release-group=${releaseGroupId}&fmt=json&inc=recordings&limit=1`);
+  const release = json.releases?.[0];
+  if (!release) return [];
+  const tracks = [];
+  for (const medium of release.media || []) {
+    for (const t of medium.tracks || []) {
+      tracks.push({
+        trackId: t.recording?.id || t.id,
+        trackName: t.title || t.recording?.title || '',
+        trackNumber: t.position || tracks.length + 1,
+        trackTimeMillis: t.length || t.recording?.length || 0,
+        wrapperType: 'track',
+        kind: 'song',
+      });
+    }
+  }
+  return tracks;
+}
+
 async function deezerSearch(q, entity, limit, debug) {
   const path = entity === 'album' ? 'search/album' : entity === 'musicArtist' ? 'search/artist' : 'search';
   const dzUrl = `https://api.deezer.com/${path}?q=${encodeURIComponent(q)}&limit=${limit}`;
@@ -182,6 +270,37 @@ export default {
       });
       if (data.results?.length) ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;
+    }
+
+    // ── Deezer/MusicBrainz 출처 결과의 가수→앨범, 앨범→트랙 조회 (GET) ──
+    const browseRoutes = {
+      '/deezer-artist-albums': () => deezerArtistAlbums(url.searchParams.get('id')),
+      '/deezer-album-tracks': () => deezerAlbumTracks(url.searchParams.get('id')),
+      '/mb-artist-albums': () => mbArtistAlbums(url.searchParams.get('id')),
+      '/mb-album-tracks': () => mbAlbumTracks(url.searchParams.get('id')),
+    };
+    if (browseRoutes[url.pathname]) {
+      const cacheKey = new Request(url.toString(), request);
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
+
+      try {
+        const results = await browseRoutes[url.pathname]();
+        const response = new Response(JSON.stringify({ results }), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=1800'
+          }
+        });
+        if (results.length) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+        return response;
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
     }
 
     // ── iTunes lookup 프록시 (GET) ──
