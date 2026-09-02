@@ -320,12 +320,14 @@ async function itunesSearch(q, stype){
   const workerP=searchViaWorker(q, stype, dbg);
   const directP=searchItunesDirect(q, stype, dbg);
 
-  // 직접 호출은 모바일에서 막혀 있어 응답이 없을 수 있으므로 오래 기다리지 않는다.
-  const direct=await Promise.race([directP, sleep(2000)]);
+  // iTunes만 인기순 정렬이 제대로 되므로(Deezer는 엣지에서 자주 빈손, MusicBrainz는
+  // 원곡이 상위에 못 든다) 넉넉히 기다린다. 막혀 있으면 대개 즉시 실패하므로 손해가 적다.
+  const direct=await Promise.race([directP, sleep(4000)]);
   if(direct) return direct;
 
   const worker=await workerP;
-  if(worker) return worker;
+  // 왜 iTunes를 못 썼는지 출처 옆에 남긴다(기기별 진단용).
+  if(worker) return {...worker, note:dbg.find(d=>d.startsWith('직접:'))||'직접: 응답 없음(4초 초과)'};
 
   // Worker도 실패했으면 느린 직접 호출이라도 끝까지 기다려 본다.
   const lateDirect=await directP;
@@ -520,12 +522,12 @@ async function doSearch(){
   document.getElementById('pagination').style.display='none';
   document.getElementById('search-source').style.display='none';
   try{
-    let results, source;
+    let results, source, note;
     try{
-      ({results, source}=await itunesSearch(q, S.stype));
+      ({results, source, note}=await itunesSearch(q, S.stype));
     }catch(e1){
       area.innerHTML='<div class="loading"><div class="spin"></div>재시도 중...</div>';
-      ({results, source}=await itunesSearch(q, S.stype));
+      ({results, source, note}=await itunesSearch(q, S.stype));
     }
     const src=source.includes('Deezer')?'Deezer':source.includes('MusicBrainz')?'MusicBrainz':'iTunes';
     results.forEach(r=>r._src=src);
@@ -534,7 +536,7 @@ async function doSearch(){
     if(!results.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>검색 결과가 없습니다</div>';return;}
     // 출처 표시
     const srcEl=document.getElementById('search-source');
-    srcEl.textContent='검색 출처: '+source;
+    srcEl.textContent='검색 출처: '+source+(note?'  ('+note+')':'');
     srcEl.style.display='block';
     renderResults(results,0);
   }catch(e){area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>검색 실패: ${esc(e.message)}</div>`;}

@@ -72,16 +72,18 @@ const caaUrl = (kind, id, size) => id ? `https://coverartarchive.org/${kind}/${i
 
 function mapMusicBrainzRecording(item) {
   const release = item.releases?.[0];
+  // 커버는 개별 발매반보다 release-group에 등록돼 있는 경우가 많아 그쪽을 먼저 쓴다.
+  const groupId = release?.['release-group']?.id;
   return {
     trackId: item.id,
     trackName: item.title,
     artistName: item['artist-credit']?.[0]?.artist?.name || item['artist-credit']?.[0]?.name || '',
     artistId: item['artist-credit']?.[0]?.artist?.id || '',
     collectionName: release?.title || '',
-    collectionId: release?.['release-group']?.id || '',
+    collectionId: groupId || '',
     releaseDate: release?.date || '',
-    artworkUrl60: caaUrl('release', release?.id, 250),
-    artworkUrl100: caaUrl('release', release?.id, 500),
+    artworkUrl60: groupId ? caaUrl('release-group', groupId, 250) : caaUrl('release', release?.id, 250),
+    artworkUrl100: groupId ? caaUrl('release-group', groupId, 500) : caaUrl('release', release?.id, 500),
     wrapperType: 'track',
     kind: 'song',
   };
@@ -99,21 +101,44 @@ function mbQuery(q) {
     .join(' ');
 }
 
-// MusicBrainz의 score(0~100)는 인기도가 아니라 자체 관련도 점수다.
-const mbPopularity = it => (it.score || 0) / 100;
+// MusicBrainz의 score(0~100)는 인기도가 아니라 자체 관련도 점수다. 제목이 똑같은 커버가
+// 수십 개면 전부 만점이라 순서를 가르지 못한다.
+const mbScore = it => (it.score || 0) / 100;
+
+// 그래서 곡은 수록된 음반 수를 유명세의 대용으로 쓴다. 원곡은 정규앨범·컴필레이션·재발매로
+// 여러 번 실리지만 무명 커버는 보통 한 장뿐이다.
+const mbRecordingPopularity = it => Math.min((it.releases || []).length / 10, 1);
 
 async function mbSearch(kind, q, limit) {
   const want = Number(limit) || 50;
-  const url = `https://musicbrainz.org/ws/2/${kind}/?query=${encodeURIComponent(mbQuery(q))}&limit=${Math.min(want * 2, 100)}&fmt=json`;
+  // MusicBrainz는 제목이 같은 후보에 전부 score 100을 주기 때문에, 원곡이 상위에 온다는
+  // 보장이 없다. 최대치인 100개를 받아 와서 우리 기준으로 다시 줄 세운다.
+  const url = `https://musicbrainz.org/ws/2/${kind}/?query=${encodeURIComponent(mbQuery(q))}&limit=100&fmt=json`;
   return { json: await mbJson(url), want };
 }
 
+const mbArtistOf = it => it['artist-credit']?.[0]?.artist?.name || it['artist-credit']?.[0]?.name || '';
+
 async function musicBrainzSearch(q, limit) {
   const { json, want } = await mbSearch('recording', q, limit);
-  return rankResults(json.recordings || [], q, {
+  const recs = json.recordings || [];
+
+  // MusicBrainz는 같은 곡을 발매반·라이브·리마스터마다 별도 recording으로 쪼개 둔다.
+  // 그래서 원곡 가수는 같은 제목으로 수십 건이 잡히고 커버 가수는 한두 건뿐이다.
+  // 이 "잡힌 건수"가 개별 recording의 음반 수보다 훨씬 안정적인 유명세 지표다 —
+  // 검색이 매번 다른 100건을 표본으로 주더라도 가수별 비율은 그대로 유지되기 때문이다.
+  const hitsByArtist = new Map();
+  for (const r of recs) {
+    const k = normalize(mbArtistOf(r));
+    hitsByArtist.set(k, (hitsByArtist.get(k) || 0) + 1);
+  }
+
+  return rankResults(recs, q, {
     title: it => it.title || '',
-    artist: it => it['artist-credit']?.[0]?.artist?.name || it['artist-credit']?.[0]?.name || '',
-    popularity: mbPopularity,
+    artist: mbArtistOf,
+    // 가수별 건수가 주 신호, 음반 수는 같은 가수의 여러 항목 중 대표를 고르는 보조 신호다.
+    popularity: it => Math.min((hitsByArtist.get(normalize(mbArtistOf(it))) || 1) / 8, 1) * 0.8
+                    + mbRecordingPopularity(it) * 0.2,
   }).slice(0, want).map(mapMusicBrainzRecording);
 }
 
@@ -122,7 +147,7 @@ async function mbArtistSearch(q, limit) {
   return rankResults(json.artists || [], q, {
     title: it => it.name || '',
     artist: () => '',
-    popularity: mbPopularity,
+    popularity: mbScore,
   }).slice(0, want).map(a => ({
     artistId: a.id,
     artistName: a.name,
@@ -136,7 +161,7 @@ async function mbAlbumSearch(q, limit) {
   return rankResults(json['release-groups'] || [], q, {
     title: it => it.title || '',
     artist: it => it['artist-credit']?.[0]?.artist?.name || it['artist-credit']?.[0]?.name || '',
-    popularity: mbPopularity,
+    popularity: mbScore,
   }).slice(0, want).map(rg => ({
     collectionId: rg.id,
     collectionName: rg.title,
@@ -151,11 +176,18 @@ async function mbAlbumSearch(q, limit) {
 
 const MB_HEADERS = { 'User-Agent': 'MusicAI/1.0 (https://kjseong0313.github.io)' };
 
+// MusicBrainz는 초당 1회 제한이 빡빡해 503(busy)을 자주 낸다. 잠깐 쉬었다 다시 시도한다.
 async function mbJson(url) {
-  const res = await fetch(url, { headers: MB_HEADERS });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`MusicBrainz HTTP ${res.status}: ${text.slice(0, 150)}`);
-  return JSON.parse(text);
+  let lastErr = '';
+  for (let i = 0; i < 3; i++) {
+    const res = await fetch(url, { headers: MB_HEADERS });
+    const text = await res.text();
+    if (res.ok) return JSON.parse(text);
+    lastErr = `HTTP ${res.status}: ${text.slice(0, 120)}`;
+    if (res.status < 500) break;   // 400대는 다시 걸어도 같은 결과다
+    if (i < 2) await new Promise(r => setTimeout(r, 700 * (i + 1)));
+  }
+  throw new Error(`MusicBrainz ${lastErr}`);
 }
 
 // Deezer는 이 헤더로 카탈로그와 표기 언어를 정한다. ko-KR을 쓰면 한국 카탈로그가 오는데
@@ -163,13 +195,17 @@ async function mbJson(url) {
 // en-US는 카탈로그가 가장 넓고 가수 이름도 로마자로 온다.
 const DEEZER_HEADERS = { 'Accept-Language': 'en-US,en;q=0.9' };
 
+// Workers의 fetch는 GET 응답을 엣지에 자동으로 캐싱한다. Deezer가 빈손 응답(위 버그)을
+// 한 번 내놓으면 그게 캐시에 박혀서 재시도해도 계속 같은 빈 응답이 돌아온다. 캐시를 끈다.
+const DEEZER_FETCH = { headers: DEEZER_HEADERS, cf: { cacheTtl: 0, cacheEverything: false } };
+
 // Deezer 게이트웨이가 간헐적으로 유효한 ID에도 빈 배열을 응답하는 버그가 있어,
 // 배열이 비어 있으면 몇 번 재시도한다 (ID 기반 조회는 결과가 진짜로 비어있을 일이 거의 없다).
 async function deezerFetchRetry(url, extract) {
   let lastErr = '';
   for (let i = 0; i < 3; i++) {
     try {
-      const res = await fetch(url, { headers: DEEZER_HEADERS });
+      const res = await fetch(url, DEEZER_FETCH);
       const text = await res.text();
       if (!res.ok) { lastErr = `HTTP ${res.status}: ${text.slice(0, 150)}`; }
       else {
@@ -338,20 +374,36 @@ async function deezerSearch(q, entity, limit, debug) {
   const path = entity === 'album' ? 'search/album' : entity === 'musicArtist' ? 'search/artist' : 'search';
   const want = Number(limit) || 50;
   // 걸러내고 다시 정렬할 재료가 있어야 하므로 필요한 개수보다 넉넉히 받아온다.
-  const dzUrl = `https://api.deezer.com/${path}?q=${encodeURIComponent(q)}&limit=${Math.min(want * 2, 100)}&order=RANKING`;
+  const n = Math.min(want * 2, 100);
+  const qs = encodeURIComponent(q);
 
+  // Deezer 게이트웨이는 total>0인데 data를 빈 배열로 주는 버그가 있다. 요청마다 무작위로
+  // 터지므로(같은 검색어도 될 때가 있고 안 될 때가 있다) 여러 번 다시 던지는 수밖에 없다.
+  // 매번 다른 URL이 되도록 nonce를 붙여, 중간 경로에 빈 응답이 물리지 않게 한다.
+  const shapes = [
+    `${path}?q=${qs}&limit=${n}&order=RANKING`,
+    `${path}?q=${qs}&limit=${n}&index=0`,
+    `${path}?q=${qs}&limit=${n + 5}`,
+  ];
+  // 곡 검색은 전용 엔드포인트가 따로 있어 하나 더 쓸 수 있다.
+  if (path === 'search') shapes.push(`search/track?q=${qs}&limit=${n}`);
+
+  // 유명순 정렬이 가능한 소스는 Deezer뿐이라(MusicBrainz는 원곡이 상위 100에도 못 든다)
+  // 넉넉히 다시 던진다. 성공한 응답은 이 워커가 30분간 캐싱하므로 비용은 한 번만 든다.
+  const ATTEMPTS = 10;
   let lastRaw = '';
-  for (let i = 0; i < 3; i++) {
-    const res = await fetch(dzUrl, { headers: DEEZER_HEADERS });
+  for (let i = 0; i < ATTEMPTS; i++) {
+    const shape = shapes[i % shapes.length];
+    const nonce = Math.random().toString(36).slice(2, 10);
+    const res = await fetch(`https://api.deezer.com/${shape}&_n=${nonce}`, DEEZER_FETCH);
     const text = await res.text();
-    if (debug) throw new Error(`RAW status=${res.status}: ${text.slice(0, 400)}`);
+    if (debug) throw new Error(`RAW [${shape}] status=${res.status}: ${text.slice(0, 400)}`);
     if (!res.ok) { lastRaw = `HTTP ${res.status}: ${text.slice(0, 150)}`; }
     else {
       const json = JSON.parse(text);
       if (json.error) { lastRaw = `API error: ${JSON.stringify(json.error).slice(0, 150)}`; }
       else {
         const items = json.data || [];
-        // Deezer 게이트웨이가 간헐적으로 total>0인데 data만 빈 배열로 응답하는 버그가 있어 재시도한다.
         if (items.length || !json.total) {
           const ranked = rankResults(items, q, {
             title: it => it.title || it.name || '',
@@ -362,12 +414,16 @@ async function deezerSearch(q, entity, limit, debug) {
               : Math.min((it.rank || 0) / 800000, 1),
           }).slice(0, want);
           const mapper = entity === 'album' ? mapDeezerAlbum : entity === 'musicArtist' ? mapDeezerArtist : mapDeezerTrack;
-          return ranked.map(mapper);
+          // rank 100000은 Deezer가 무명 업로드에 주는 최저값이다. 전부 그 값이면 이 지역
+          // 카탈로그에 원곡이 없다는 뜻이라(한국 곡에서 흔하다) MusicBrainz 쪽이 낫다.
+          const topRank = Math.max(0, ...items.map(it => it.rank || 0));
+          const weak = entity === 'song' && items.length > 0 && topRank <= 100000;
+          return { results: ranked.map(mapper), weak };
         }
         lastRaw = `empty data despite total=${json.total}`;
       }
     }
-    if (i < 2) await new Promise(r => setTimeout(r, 250));
+    if (i < ATTEMPTS - 1) await new Promise(r => setTimeout(r, 150));
   }
   throw new Error(`Deezer: ${lastRaw}`);
 }
@@ -418,9 +474,15 @@ export default {
       } else {
         appleError && errs.push(`iTunes: ${appleError}`);
         const debug = url.searchParams.get('debug') === '1';
+        // 유명한 게 하나도 안 잡힌 Deezer 결과. MusicBrainz가 실패할 때만 쓴다.
+        let weakDeezer = null;
         try {
-          const results = await deezerSearch(q, entity, limit, debug);
-          data = { resultCount: results.length, results, source: 'Deezer' };
+          const { results, weak } = await deezerSearch(q, entity, limit, debug);
+          // Deezer는 지역 카탈로그에 곡이 없으면 오류 없이 빈손으로 성공한다. 그대로
+          // "결과 없음"을 돌려주지 말고 MusicBrainz까지 가봐야 한다(원곡이 거기 있다).
+          if (!results.length) errs.push('Deezer: 결과 없음');
+          else if (weak) { weakDeezer = results; errs.push('Deezer: 유명한 결과 없음'); }
+          else data = { resultCount: results.length, results, source: 'Deezer' };
         } catch (e) {
           errs.push(e.message);
           // debug 모드에서는 Deezer 응답을 그대로 봐야 하므로 폴백으로 넘어가지 않는다.
@@ -430,14 +492,23 @@ export default {
               headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
             });
           }
+        }
+
+        if (!data) {
           try {
             const results = entity === 'musicArtist' ? await mbArtistSearch(q, limit)
               : entity === 'album' ? await mbAlbumSearch(q, limit)
               : await musicBrainzSearch(q, limit);
-            data = { resultCount: results.length, results, source: 'MusicBrainz' };
+            if (results.length) data = { resultCount: results.length, results, source: 'MusicBrainz' };
+            else errs.push('MusicBrainz: 결과 없음');
           } catch (e2) {
             errs.push(`MusicBrainz: ${e2.message}`);
           }
+        }
+
+        // 어느 쪽도 못 건졌으면 아까 밀어둔 Deezer 결과라도 보여준다.
+        if (!data && weakDeezer) {
+          data = { resultCount: weakDeezer.length, results: weakDeezer, source: 'Deezer' };
         }
       }
 
