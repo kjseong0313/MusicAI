@@ -119,6 +119,36 @@ async function mbSearch(kind, q, limit) {
 
 const mbArtistOf = it => it['artist-credit']?.[0]?.artist?.name || it['artist-credit']?.[0]?.name || '';
 
+// MusicBrainz에는 인기도 데이터가 아예 없어서 제목이 같은 커버가 원곡을 밀어낸다.
+// 가수 이름으로 Deezer에서 팬 수만 빌려와 유명세를 매긴다(Queen 1,279만 vs
+// California Guitar Trio 983 — 순서를 가르기에 충분한 차이다).
+// Deezer의 가수 검색은 첫 결과가 동명이인일 때가 많아, 이름이 정확히 같은 것 중
+// 가장 팬이 많은 쪽을 고른다("Ed Sheeran"의 첫 매치는 팬 2천의 다른 계정이다).
+// 가수 조회도 Deezer의 빈 응답 버그를 맞으므로 매번 다른 URL로 두 번까지 시도한다.
+// Workers는 요청당 서브요청 50개가 상한이라 인원과 횟수를 넉넉잡아 20건으로 묶어 둔다.
+async function deezerArtistFame(names) {
+  const fame = new Map();
+  await Promise.all(names.map(async name => {
+    const want = normalize(name);
+    for (let i = 0; i < 3; i++) {
+      try {
+        const nonce = Math.random().toString(36).slice(2, 8);
+        const url = `https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}&limit=40&_n=${nonce}`;
+        const res = await fetch(url, DEEZER_FETCH);
+        if (res.ok) {
+          const json = await res.json();
+          const exact = (json.data || []).filter(a => normalize(a.name) === want);
+          if (exact.length) { fame.set(want, Math.max(...exact.map(a => a.nb_fan || 0))); return; }
+          // 이름이 정확히 겹치는 가수가 진짜 없으면 다시 걸어도 결과가 같다.
+          if ((json.data || []).length) return;
+        }
+      } catch { /* 아래에서 다시 시도한다 */ }
+    }
+    /* 끝내 못 구하면 이 가수는 빈도 신호로만 판단한다 */
+  }));
+  return fame;
+}
+
 async function musicBrainzSearch(q, limit) {
   const { json, want } = await mbSearch('recording', q, limit);
   const recs = json.recordings || [];
@@ -133,12 +163,28 @@ async function musicBrainzSearch(q, limit) {
     hitsByArtist.set(k, (hitsByArtist.get(k) || 0) + 1);
   }
 
+  // 잡힌 건수가 많은 가수부터 팬 수를 조회한다(서브요청 예산 때문에 상위 8명 × 3회).
+  const topNames = [...hitsByArtist.keys()]
+    .sort((a, b) => hitsByArtist.get(b) - hitsByArtist.get(a))
+    .slice(0, 8)
+    .map(k => recs.find(r => normalize(mbArtistOf(r)) === k))
+    .map(mbArtistOf)
+    .filter(Boolean);
+  const fame = await deezerArtistFame(topNames);
+
   return rankResults(recs, q, {
     title: it => it.title || '',
     artist: mbArtistOf,
-    // 가수별 건수가 주 신호, 음반 수는 같은 가수의 여러 항목 중 대표를 고르는 보조 신호다.
-    popularity: it => Math.min((hitsByArtist.get(normalize(mbArtistOf(it))) || 1) / 8, 1) * 0.8
-                    + mbRecordingPopularity(it) * 0.2,
+    popularity: it => {
+      const key = normalize(mbArtistOf(it));
+      const fans = fame.get(key);
+      // 팬 수는 0~2천만이라 로그로 눌러 쓴다.
+      if (fans !== undefined) return Math.min(Math.log10(fans + 1) / 7, 1);
+      // 팬 수를 못 구한 가수(조회 실패 또는 Deezer에 없음)는 중립값에서 시작한다.
+      // 낮게 깔면 조회에 성공한 덜 유명한 커버 가수에게 원곡이 밀린다.
+      const byHits = Math.min((hitsByArtist.get(key) || 1) / 8, 1) * 0.8 + mbRecordingPopularity(it) * 0.2;
+      return 0.45 + byHits * 0.3;
+    },
   }).slice(0, want).map(mapMusicBrainzRecording);
 }
 
