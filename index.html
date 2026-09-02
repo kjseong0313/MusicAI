@@ -311,65 +311,93 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 
 </div>
 <script>
-// 다중 소스 검색 (Worker 경유 → 직접 → MusicBrainz)
+// ── 다중 소스 검색 ──
+// Worker(iTunes→Deezer→MusicBrainz)와 브라우저 직접 iTunes를 동시에 던진다.
+// Apple이 Cloudflare IP를 막아서 Worker는 대개 Deezer로 떨어지지만, PC에서는 직접 호출이
+// 통한다. iTunes 쪽이 인기순 정렬과 오타 보정이 가장 좋으므로 그 결과를 우선한다.
 async function itunesSearch(q, stype){
   const dbg=[];
+  const workerP=searchViaWorker(q, stype, dbg);
+  const directP=searchItunesDirect(q, stype, dbg);
 
-  // 1. Worker 통해서 iTunes (모바일에서도 작동)
+  // 직접 호출은 모바일에서 막혀 있어 응답이 없을 수 있으므로 오래 기다리지 않는다.
+  const direct=await Promise.race([directP, sleep(2000)]);
+  if(direct) return direct;
+
+  const worker=await workerP;
+  if(worker) return worker;
+
+  // Worker도 실패했으면 느린 직접 호출이라도 끝까지 기다려 본다.
+  const lateDirect=await directP;
+  if(lateDirect) return lateDirect;
+
+  const mb=await searchMusicBrainzDirect(q, stype, dbg);
+  if(mb) return mb;
+
+  throw new Error('모든 검색 소스 실패 → '+dbg.join(' | '));
+}
+
+// 아래 세 함수는 실패해도 예외를 던지지 않고 null을 돌려준다(병렬 실행 중 미처리 거부 방지).
+async function searchViaWorker(q, stype, dbg){
   try{
     const url=`${WORKER_URL}/itunes?q=${encodeURIComponent(q)}&entity=${stype}&country=KR&limit=50`;
     const res=await fetch(url, {signal:AbortSignal.timeout(6000)});
-    if(res.ok){
-      const data=await res.json();
-      if(data.results?.length) return {results:data.results, source:data.source||'iTunes'};
-      dbg.push(`Worker: ok but empty (${JSON.stringify(data).slice(0,120)})`);
-    }else{
+    if(!res.ok){
       const body=await res.text().catch(()=>'');
       dbg.push(`Worker: HTTP ${res.status} ${body.slice(0,300)}`);
+      return null;
     }
+    const data=await res.json();
+    if(data.results?.length) return {results:data.results, source:data.source||'iTunes'};
+    dbg.push(`Worker: ok but empty (${JSON.stringify(data).slice(0,120)})`);
   }catch(e){dbg.push(`Worker: ${e.name}: ${e.message}`);}
+  return null;
+}
 
-  // 2. 직접 iTunes (PC에서는 됨)
+async function searchItunesDirect(q, stype, dbg){
   try{
     const url=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${stype}&limit=50&country=KR`;
     const res=await fetch(url, {signal:AbortSignal.timeout(5000)});
-    if(res.ok){
-      const data=await res.json();
-      if(data.results?.length) return {results:data.results, source:'iTunes (직접)'};
-      dbg.push(`직접: ok but empty`);
-    }else{
-      dbg.push(`직접: HTTP ${res.status}`);
-    }
+    if(!res.ok){dbg.push(`직접: HTTP ${res.status}`);return null;}
+    const data=await res.json();
+    if(data.results?.length) return {results:data.results, source:'iTunes (직접)'};
+    dbg.push('직접: ok but empty');
   }catch(e){dbg.push(`직접: ${e.name}: ${e.message}`);}
+  return null;
+}
 
-  // 3. MusicBrainz (최후 수단)
-  if(stype==='song'||stype==='musicArtist'){
-    try{
-      const mbType=stype==='song'?'recording':'artist';
-      const url=`https://musicbrainz.org/ws/2/${mbType}/?query=${encodeURIComponent(q)}&limit=20&fmt=json`;
-      const res=await fetch(url, {signal:AbortSignal.timeout(5000), headers:{'User-Agent':'MusicAI/1.0'}});
-      if(res.ok){
-        const data=await res.json();
-        const items=stype==='song'?(data.recordings||[]):(data.artists||[]);
-        if(items.length){
-          const converted=items.map(item=>({
-            trackName: item.title||item.name,
-            artistName: item['artist-credit']?.[0]?.artist?.name||item.name,
-            collectionName: item.releases?.[0]?.title||'',
-            releaseDate: item.releases?.[0]?.date||'',
-            artworkUrl60: '',
-            wrapperType: stype==='song'?'track':'artist',
-          }));
-          return {results:converted, source:'MusicBrainz'};
-        }
-        dbg.push(`MusicBrainz: ok but empty`);
-      }else{
-        dbg.push(`MusicBrainz: HTTP ${res.status}`);
-      }
-    }catch(e){dbg.push(`MusicBrainz: ${e.name}: ${e.message}`);}
-  }
-
-  throw new Error('모든 검색 소스 실패 → '+dbg.join(' | '));
+// 최후 수단. Worker까지 닿지 않을 때만 쓰인다.
+async function searchMusicBrainzDirect(q, stype, dbg){
+  if(stype==='album') return null;
+  try{
+    const mbType=stype==='song'?'recording':'artist';
+    const url=`https://musicbrainz.org/ws/2/${mbType}/?query=${encodeURIComponent(q)}&limit=20&fmt=json`;
+    const res=await fetch(url, {signal:AbortSignal.timeout(5000)});
+    if(!res.ok){dbg.push(`MusicBrainz: HTTP ${res.status}`);return null;}
+    const data=await res.json();
+    const items=stype==='song'?(data.recordings||[]):(data.artists||[]);
+    if(!items.length){dbg.push('MusicBrainz: ok but empty');return null;}
+    items.sort((a,b)=>(b.score||0)-(a.score||0));   // MusicBrainz 자체 관련도 순
+    // 가수·앨범을 이어서 탐색하려면 MBID가 있어야 한다.
+    const converted=items.map(item=>stype==='song'?{
+      trackId:item.id,
+      trackName:item.title||'',
+      artistName:item['artist-credit']?.[0]?.artist?.name||item['artist-credit']?.[0]?.name||'',
+      artistId:item['artist-credit']?.[0]?.artist?.id||'',
+      collectionName:item.releases?.[0]?.title||'',
+      collectionId:item.releases?.[0]?.['release-group']?.id||'',
+      releaseDate:item.releases?.[0]?.date||'',
+      artworkUrl60:'',
+      wrapperType:'track',
+    }:{
+      artistId:item.id,
+      artistName:item.name||'',
+      primaryGenreName:item.disambiguation||item.area?.name||'',
+      wrapperType:'artist',
+    });
+    return {results:converted, source:'MusicBrainz'};
+  }catch(e){dbg.push(`MusicBrainz: ${e.name}: ${e.message}`);}
+  return null;
 }
 
 const API_KEYS=[
@@ -551,26 +579,33 @@ function renderResults(items,page){
   pg.appendChild(nextBtn);
 }
 
+// 커버가 없는 음반이 많아(특히 MusicBrainz의 커버 아트 아카이브) 404면 아이콘으로 되돌린다.
+function imgCell(url, icon){
+  return url
+    ? `<div class="ri-img"><img src="${esc(url)}" loading="lazy" onerror="this.parentNode.textContent='${icon}'"></div>`
+    : `<div class="ri-img">${icon}</div>`;
+}
+
 function makeResultItem(item){
   const div=document.createElement('div');div.className='ri';
   div.onclick=()=>selectItem(item);
-  let title='',sub='',badge='',img='';
+  let title='',sub='',badge='',icon='🎵';
+  const img=item.artworkUrl60||'';
   if(S.stype==='song'){
     title=item.trackName||'';
     sub=(item.artistName||'')+' · '+(item.collectionName||'');
     badge=item.releaseDate?.substring(0,4)||'';
-    img=item.artworkUrl60||'';
   }else if(S.stype==='album'){
     title=item.collectionName||'';
     sub=item.artistName||'';
-    badge=item.trackCount?item.trackCount+'곡':'';
-    img=item.artworkUrl60||'';
+    badge=item.trackCount?item.trackCount+'곡':(item.releaseDate?.substring(0,4)||'');
+    icon='💿';
   }else{
     title=item.artistName||'';
     sub=item.primaryGenreName||'';
-    img='';
+    icon='🎤';
   }
-  div.innerHTML=`<div class="ri-img">${img?`<img src="${img}" loading="lazy">`:'🎵'}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(sub)}</div></div>${badge?`<div class="ri-badge">${esc(String(badge))}</div>`:''}`;
+  div.innerHTML=`${imgCell(img,icon)}<div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(sub)}</div></div>${badge?`<div class="ri-badge">${esc(String(badge))}</div>`:''}`;
   return div;
 }
 
@@ -680,9 +715,8 @@ function renderList(items,isTrackList,artistName,artUrl){
     }else{
       const title=item.collectionName||item.title||'';
       const year=item.releaseDate?.substring(0,4)||item.year||'';
-      const img=item.artworkUrl60||'';
       div.onclick=()=>loadAlbumTracks(item);
-      div.innerHTML=`<div class="ri-img">${img?`<img src="${img}" loading="lazy">`:'💿'}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(year)}</div></div>`;
+      div.innerHTML=`${imgCell(item.artworkUrl60||'','💿')}<div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(year)}</div></div>`;
     }
     area.appendChild(div);
   });
@@ -1027,7 +1061,7 @@ const WORKER_URL = 'https://musicai.kjseong0313.workers.dev';
 
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 
-async function callGemini(prompt, statusElId=null, history=[], sysOverride=null, retries=4, jsonMode=false){
+async function callGemini(prompt, statusElId=null, history=[], sysOverride=null, retries=6, jsonMode=false){
   await sleep(500);
   const sysText = sysOverride || '당신은 음악 전문가 AI입니다. 가사 분석, 번역, 음악 역사에 대한 깊이 있는 통찰을 제공합니다. 한국어로 답변하세요.';
 
@@ -1049,6 +1083,14 @@ async function callGemini(prompt, statusElId=null, history=[], sysOverride=null,
       if(d.error?.code === 429){
         const wait = [15,30,60,120][i]||60;
         if(statusElId){const el=document.getElementById(statusElId);if(el)el.innerHTML=`<div class="retry-msg">⏳ 한도 초과. ${wait}초 후 재시도... (${i+1}/${retries})</div>`;}
+        await sleep(wait*1000);
+        continue;
+      }
+      // Cloudflare Worker가 요청을 처리하는 엣지 위치에 따라 Gemini가 간헐적으로
+      // 지역 제한 오류를 낸다. 새 요청은 다른 엣지로 나갈 수 있으므로 재시도하면 보통 풀린다.
+      if(d.error && /user location is not supported/i.test(d.error.message)){
+        const wait = [2,4,8,15,20][i]||20;
+        if(statusElId){const el=document.getElementById(statusElId);if(el)el.innerHTML=`<div class="retry-msg">⏳ 일시적 지역 오류. ${wait}초 후 재시도... (${i+1}/${retries})</div>`;}
         await sleep(wait*1000);
         continue;
       }
