@@ -509,9 +509,9 @@ export default {
       if (cached) return cached;
 
       const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${entity}&limit=${limit}&country=${country}`;
-      // iTunes 결과가 가장 좋으므로 한 번 더 시도한다. Deezer는 지역에 따라 카탈로그가
-      // 비거나 표기가 일본어로 오기 때문에 곧바로 넘어가면 검색 품질이 크게 떨어진다.
-      const { data: appleData, error: appleError } = await fetchItunesJson(itunesUrl, 2);
+      // Apple은 Cloudflare 공용 IP를 상시 429로 막는다(직접 확인). 재시도해도 같은 IP라
+      // 소용이 없어 한 번만 걸어 본다 — 언젠가 풀릴 수 있으니 호출 자체는 남겨 둔다.
+      const { data: appleData, error: appleError } = await fetchItunesJson(itunesUrl, 1);
 
       let data;
       const errs = [];

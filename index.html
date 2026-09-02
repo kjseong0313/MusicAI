@@ -164,7 +164,6 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <div class="hdr-pill key-ok" id="key-pill">
         <span>☁️</span>
         <span>Worker</span>
-        <span style="color:var(--muted);font-size:.6rem">▾</span>
       </div>
     </div>
   </div>
@@ -194,30 +193,6 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         <div class="mopt-right"><div class="mbadge">무료</div><div class="mrpm">분당 10회 · 일일 20회</div></div>
       </div>
       <button class="sheet-cancel" onclick="closeOverlay('model-overlay')">취소</button>
-    </div>
-  </div>
-
-  <!-- KEY SELECT SHEET -->
-  <div class="overlay" id="key-overlay" onclick="if(event.target===this)closeOverlay('key-overlay')">
-    <div class="sheet">
-      <div class="sheet-title">🔑 API 키 설정</div>
-      <div style="font-size:.75rem;color:var(--muted);margin-bottom:.8rem"><a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com</a> 에서 발급</div>
-      <div class="mopt" id="k-opt-0" onclick="selectKey(0)" style="cursor:default">
-        <div class="mopt-icon">1️⃣</div>
-        <div class="mopt-info">
-          <div class="mopt-name">키 1 <span id="k-status-0" style="font-size:.7rem;color:var(--muted)"></span></div>
-          <input id="k-input-0" type="password" placeholder="AIzaSy..." style="width:100%;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.5rem .7rem;color:var(--text);font-size:.8rem;font-family:'DM Mono',monospace;outline:none;margin-top:.4rem" onclick="event.stopPropagation()">
-        </div>
-      </div>
-      <div class="mopt" id="k-opt-1" onclick="selectKey(1)" style="cursor:default;margin-bottom:.8rem">
-        <div class="mopt-icon">2️⃣</div>
-        <div class="mopt-info">
-          <div class="mopt-name">키 2 <span id="k-status-1" style="font-size:.7rem;color:var(--muted)"></span></div>
-          <input id="k-input-1" type="password" placeholder="AIzaSy..." style="width:100%;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.5rem .7rem;color:var(--text);font-size:.8rem;font-family:'DM Mono',monospace;outline:none;margin-top:.4rem" onclick="event.stopPropagation()">
-        </div>
-      </div>
-      <button onclick="saveKeys()" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:12px;padding:.9rem;font-size:.95rem;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer;margin-bottom:.4rem">저장</button>
-      <button class="sheet-cancel" onclick="closeOverlay('key-overlay')">취소</button>
     </div>
   </div>
 
@@ -402,15 +377,7 @@ async function searchMusicBrainzDirect(q, stype, dbg){
   return null;
 }
 
-const API_KEYS=[
-  localStorage.getItem('ma_key1')||'',
-  localStorage.getItem('ma_key2')||''
-];
-let currentKeyIdx=0;
-
 const S={
-  get key(){return API_KEYS[currentKeyIdx];},
-  set key(v){},
   model:localStorage.getItem('ma_model')||'gemini-3.1-flash-lite',
   pill:localStorage.getItem('ma_pill')||'⚡ Lite 3.1',
   stype:'song',
@@ -427,46 +394,15 @@ const MMAP={'o-lite31':'gemini-3.1-flash-lite','o-flash25':'gemini-2.5-flash','o
 
 window.onload=function(){
   document.getElementById('pill-lbl').textContent=S.pill;
-  updateKeyPill();
-
+  // Gemini 키는 Worker 환경변수로 옮겨졌다. 예전 버전이 브라우저에 저장해 둔 키를 지운다.
+  localStorage.removeItem('ma_key1');
+  localStorage.removeItem('ma_key2');
 };
 
-// ── KEY / MODEL ──
-function updateKeyPill(){
-  const pill=document.getElementById('key-pill');
-  if(!pill) return;
-  const icon=document.getElementById('key-icon');
-  const lbl=document.getElementById('key-lbl');
-  if(icon) icon.textContent='☁️';
-  if(lbl) lbl.textContent='Worker';
-  pill.className='hdr-pill key-ok';
-}
+// ── MODEL ──
 function openModelSheet(){
   Object.entries(MMAP).forEach(([id,m])=>document.getElementById(id).classList.toggle('sel',m===S.model));
   document.getElementById('model-overlay').classList.add('open');
-}
-function openKeySheet(){
-  document.getElementById('k-input-0').value=API_KEYS[0]||'';
-  document.getElementById('k-input-1').value=API_KEYS[1]||'';
-  document.getElementById('k-status-0').textContent=API_KEYS[0]?'✅':'미입력';
-  document.getElementById('k-status-1').textContent=API_KEYS[1]?'✅':'미입력';
-  document.getElementById('key-overlay').classList.add('open');
-}
-
-function selectKey(idx){
-  // 클릭시 해당 input에 포커스
-  document.getElementById('k-input-'+idx).focus();
-}
-
-function saveKeys(){
-  const k1=document.getElementById('k-input-0').value.trim();
-  const k2=document.getElementById('k-input-1').value.trim();
-  if(k1){API_KEYS[0]=k1;localStorage.setItem('ma_key1',k1);}
-  if(k2){API_KEYS[1]=k2;localStorage.setItem('ma_key2',k2);}
-  currentKeyIdx=API_KEYS[0]?0:1;
-  updateKeyPill();
-  closeOverlay('key-overlay');
-  alert('저장 완료 ✅');
 }
 function closeOverlay(id){document.getElementById(id).classList.remove('open');}
 function selModel(model,pill){
