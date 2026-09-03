@@ -99,7 +99,9 @@ function escapeLucene(s) {
 // "커피한잔"에 매칭된다. 라틴 문자의 오타("rapsody")와는 성격이 다르다.
 function mbQuery(q) {
   return String(q || '').split(/\s+/).filter(Boolean)
-    .map(t => /^[A-Za-z0-9]{4,}$/.test(t) ? `${t}~` : escapeLucene(t))
+    // ~1(편집 거리 1)로 조인다. rapsody→rhapsody 같은 한 글자 오타는 그대로 잡으면서
+    // 기본값 ~2가 jean에 joan·sean·dean까지 끌어오는 잡음을 줄인다.
+    .map(t => /^[A-Za-z0-9]{4,}$/.test(t) ? `${t}~1` : escapeLucene(t))
     .join(' ');
 }
 
@@ -111,12 +113,24 @@ const mbScore = it => (it.score || 0) / 100;
 // 여러 번 실리지만 무명 커버는 보통 한 장뿐이다.
 const mbRecordingPopularity = it => Math.min((it.releases || []).length / 10, 1);
 
+// MusicBrainz는 제목이 같은 후보에 전부 score 100을 주기 때문에 원곡이 상위에 온다는
+// 보장이 없다. 흔한 낱말로 된 제목일수록 심하다 — "billie jean"은 15만 건이 매칭되고
+// 마이클 잭슨의 원곡은 101번째부터 나온다. 그래서 한 페이지(100건)로는 부족해
+// 두 페이지를 받아 200건 중에서 우리 기준으로 다시 줄 세운다.
 async function mbSearch(kind, q, limit) {
   const want = Number(limit) || 50;
-  // MusicBrainz는 제목이 같은 후보에 전부 score 100을 주기 때문에, 원곡이 상위에 온다는
-  // 보장이 없다. 최대치인 100개를 받아 와서 우리 기준으로 다시 줄 세운다.
-  const url = `https://musicbrainz.org/ws/2/${kind}/?query=${encodeURIComponent(mbQuery(q))}&limit=100&fmt=json`;
-  return { json: await mbJson(url), want };
+  const base = `https://musicbrainz.org/ws/2/${kind}/?query=${encodeURIComponent(mbQuery(q))}&limit=100&fmt=json`;
+  const json = await mbJson(base);
+  const key = kind === 'release-group' ? 'release-groups' : kind === 'artist' ? 'artists' : 'recordings';
+
+  // 두 번째 페이지는 있으면 좋고 없어도 그만이라, 실패해도 첫 페이지로 진행한다.
+  if ((json[key] || []).length === 100) {
+    try {
+      const more = await mbJson(`${base}&offset=100`);
+      json[key] = [...json[key], ...(more[key] || [])];
+    } catch { /* 첫 페이지만 쓴다 */ }
+  }
+  return { json, want };
 }
 
 const mbArtistOf = it => it['artist-credit']?.[0]?.artist?.name || it['artist-credit']?.[0]?.name || '';
@@ -408,7 +422,9 @@ function rankResults(items, q, { title, artist, popularity }) {
     if (!queryIsJapanese && JAPANESE_RE.test(t)) score -= 0.35;
     return { item, score };
   });
-  scored.sort((x, y) => y.score - x.score);
+  // 점수가 같으면 제목이 짧은 쪽을 앞에 둔다. 부가 표기는 정규화 과정에서 지워져 점수가
+  // 같아지므로, 이게 없으면 "Yesterday (take 1)"이 그냥 "Yesterday"의 대표로 뽑힌다.
+  scored.sort((x, y) => y.score - x.score || String(title(x.item)).length - String(title(y.item)).length);
 
   // 컴필레이션·재발매 탓에 같은 곡이 여러 번 나오므로 점수가 높은 쪽만 남긴다.
   const seen = new Set();
@@ -496,33 +512,45 @@ async function deezerSearch(q, entity, limit, debug) {
       else {
         const items = json.data || [];
         if (items.length || !json.total) {
-          const ranked = rankResults(items, q, {
-            title: it => it.title || it.name || '',
-            artist: it => it.artist?.name || '',
-            // 트랙의 rank는 0~약 100만, 가수의 nb_fan은 팬 수다.
-            popularity: it => entity === 'musicArtist'
-              ? Math.min((it.nb_fan || 0) / 5000000, 1)
-              : Math.min((it.rank || 0) / 800000, 1),
-          }).slice(0, want);
+          const titleOf = it => it.title || it.name || '';
+          const artistOf = it => it.artist?.name || '';
+          // 트랙의 rank는 0~약 100만, 가수의 nb_fan은 팬 수다.
+          const trackPop = it => entity === 'musicArtist'
+            ? Math.min((it.nb_fan || 0) / 5000000, 1)
+            : Math.min((it.rank || 0) / 800000, 1);
+
+          // 1차 정렬은 관련도와 재생수로만 한다. 팬 수를 조회할 후보를 추리는 용도다.
+          const head = rankResults(items, q, { title: titleOf, artist: artistOf, popularity: trackPop })
+            .slice(0, Math.min(want, 25));
           const mapper = entity === 'album' ? mapDeezerAlbum : entity === 'musicArtist' ? mapDeezerArtist : mapDeezerTrack;
           // rank 100000은 Deezer가 무명 업로드에 주는 최저값이다. 전부 그 값이면 이 지역
           // 카탈로그에 원곡이 없다는 뜻이라(한국 곡에서 흔하다) MusicBrainz 쪽이 낫다.
           const topRank = Math.max(0, ...items.map(it => it.rank || 0));
           const weak = entity === 'song' && items.length > 0 && topRank <= 100000;
 
+          if (entity === 'musicArtist') {   // 가수 검색엔 팬 수가 이미 들어 있다
+            return { results: keepFamous(head, it => it.nb_fan).map(mapper), weak };
+          }
+
           // rank는 그 트랙이 얼마나 재생됐는지일 뿐 가수의 유명세가 아니다
           // ("Billie Jean — Sunset Chasers"가 64만인데 팬은 581명이다).
-          // 그래서 화면에 나갈 상위 후보의 가수 팬 수를 조회해 무명을 걷어낸다.
-          const head = ranked.slice(0, 25);
-          let famous;
-          if (entity === 'musicArtist') {
-            famous = keepFamous(head, it => it.nb_fan);   // 가수 검색엔 팬 수가 이미 들어 있다
-          } else {
-            const ids = [...new Set(head.map(it => it.artist?.id).filter(Boolean))].slice(0, 12);
-            const fans = await deezerFansById(ids);
-            famous = keepFamous(head, it => fans.get(String(it.artist?.id)));
-          }
-          return { results: famous.map(mapper), weak };
+          const ids = [...new Set(head.map(it => it.artist?.id).filter(Boolean))].slice(0, 12);
+          const fans = await deezerFansById(ids);
+          const fansOf = it => fans.get(String(it.artist?.id));
+
+          // 2차 정렬은 재생수와 가수 유명세를 반씩 본다. 재생수만 보면 같은 제목을 가진 덜
+          // 유명한 가수가 원곡을 이기고("yesterday"에서 Hamza가 비틀즈를), 팬 수만 보면 그
+          // 곡과 무관하게 팬이 많은 가수가 올라온다(같은 검색에서 Imagine Dragons).
+          const ranked = rankResults(head, q, {
+            title: titleOf,
+            artist: artistOf,
+            popularity: it => {
+              const f = fansOf(it);
+              const fame = f === undefined ? 0.5 : Math.min(Math.log10(f + 1) / 7, 1);
+              return trackPop(it) * 0.5 + fame * 0.5;
+            },
+          });
+          return { results: keepFamous(ranked, fansOf).map(mapper), weak };
         }
         lastRaw = `empty data despite total=${json.total}`;
       }
