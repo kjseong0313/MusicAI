@@ -95,9 +95,11 @@ function escapeLucene(s) {
 }
 
 // 넉넉한 길이의 낱말에는 ~를 붙여 오타를 허용한다(Lucene 퍼지 검색).
+// 라틴 문자에만 붙인다 — 한글·한자는 한 글자가 곧 한 음절이라 퍼지를 걸면 "소주한잔"이
+// "커피한잔"에 매칭된다. 라틴 문자의 오타("rapsody")와는 성격이 다르다.
 function mbQuery(q) {
   return String(q || '').split(/\s+/).filter(Boolean)
-    .map(t => /^[\p{L}\p{N}]{4,}$/u.test(t) ? `${t}~` : escapeLucene(t))
+    .map(t => /^[A-Za-z0-9]{4,}$/.test(t) ? `${t}~` : escapeLucene(t))
     .join(' ');
 }
 
@@ -125,12 +127,12 @@ const mbArtistOf = it => it['artist-credit']?.[0]?.artist?.name || it['artist-cr
 // Deezer의 가수 검색은 첫 결과가 동명이인일 때가 많아, 이름이 정확히 같은 것 중
 // 가장 팬이 많은 쪽을 고른다("Ed Sheeran"의 첫 매치는 팬 2천의 다른 계정이다).
 // 가수 조회도 Deezer의 빈 응답 버그를 맞으므로 매번 다른 URL로 두 번까지 시도한다.
-// Workers는 요청당 서브요청 50개가 상한이라 인원과 횟수를 넉넉잡아 20건으로 묶어 둔다.
+// Workers는 요청당 서브요청 50개가 상한이라 10명 × 2회 = 20건으로 묶어 둔다.
 async function deezerArtistFame(names) {
   const fame = new Map();
   await Promise.all(names.map(async name => {
     const want = normalize(name);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       try {
         const nonce = Math.random().toString(36).slice(2, 8);
         const url = `https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}&limit=40&_n=${nonce}`;
@@ -163,16 +165,16 @@ async function musicBrainzSearch(q, limit) {
     hitsByArtist.set(k, (hitsByArtist.get(k) || 0) + 1);
   }
 
-  // 잡힌 건수가 많은 가수부터 팬 수를 조회한다(서브요청 예산 때문에 상위 8명 × 3회).
-  const topNames = [...hitsByArtist.keys()]
-    .sort((a, b) => hitsByArtist.get(b) - hitsByArtist.get(a))
-    .slice(0, 8)
-    .map(k => recs.find(r => normalize(mbArtistOf(r)) === k))
-    .map(mbArtistOf)
-    .filter(Boolean);
+  const byHits = it => Math.min((hitsByArtist.get(normalize(mbArtistOf(it))) || 1) / 8, 1) * 0.8
+                     + mbRecordingPopularity(it) * 0.2;
+
+  // 팬 수 조회는 비싸므로(가수당 최대 2회) 먼저 관련도와 건수로 한 번 줄 세운 뒤,
+  // 실제로 화면에 나갈 상위 후보의 가수만 조회한다.
+  const prelim = rankResults(recs, q, { title: it => it.title || '', artist: mbArtistOf, popularity: byHits });
+  const topNames = [...new Set(prelim.slice(0, 30).map(mbArtistOf).filter(Boolean))].slice(0, 10);
   const fame = await deezerArtistFame(topNames);
 
-  return rankResults(recs, q, {
+  const ranked = rankResults(recs, q, {
     title: it => it.title || '',
     artist: mbArtistOf,
     popularity: it => {
@@ -182,10 +184,14 @@ async function musicBrainzSearch(q, limit) {
       if (fans !== undefined) return Math.min(Math.log10(fans + 1) / 7, 1);
       // 팬 수를 못 구한 가수(조회 실패 또는 Deezer에 없음)는 중립값에서 시작한다.
       // 낮게 깔면 조회에 성공한 덜 유명한 커버 가수에게 원곡이 밀린다.
-      const byHits = Math.min((hitsByArtist.get(key) || 1) / 8, 1) * 0.8 + mbRecordingPopularity(it) * 0.2;
-      return 0.45 + byHits * 0.3;
+      return 0.45 + byHits(it) * 0.3;
     },
-  }).slice(0, want).map(mapMusicBrainzRecording);
+  });
+
+  // 무명 가수의 커버를 걷어낸다. 팬 수를 확인한 가수만 대상이므로, 조회하지 못한
+  // 가수는 그대로 남는다.
+  const famous = keepFamous(ranked.slice(0, 25), it => fame.get(normalize(mbArtistOf(it))));
+  return famous.slice(0, want).map(mapMusicBrainzRecording);
 }
 
 async function mbArtistSearch(q, limit) {
@@ -416,6 +422,45 @@ function rankResults(items, q, { title, artist, popularity }) {
   return out;
 }
 
+// 팬이 이보다 적으면 어떤 검색에서도 듣보로 본다
+// (Tanlines 134 / Nara 212 / lushreds 13 / The Liverpool Beat Project 3).
+const FANS_FLOOR = 1000;
+
+// 무명 가수의 커버를 걷어낸다. 기준을 절대값으로 잡으면 안 된다 — Deezer는 한국에서
+// 점유율이 낮아 이선희·임창정 같은 원곡 가수도 팬 수가 작고, 그러면 원곡이 통째로
+// 사라진다. 그래서 그 검색에서 가장 유명한 가수의 1%를 선으로 삼는다.
+// 팬 수를 확인하지 못한 항목은 남긴다(조회 실패를 근거로 원곡을 지울 수는 없다).
+// 하나도 안 남으면 원래 목록을 그대로 쓴다.
+function keepFamous(ranked, fansOf) {
+  const known = ranked.map(fansOf).filter(f => typeof f === 'number');
+  if (!known.length) return ranked;
+  const min = Math.max(Math.max(...known) / 100, FANS_FLOOR);
+  const famous = ranked.filter(it => {
+    const f = fansOf(it);
+    return f === undefined || f >= min;
+  });
+  return famous.length ? famous : ranked;
+}
+
+// Deezer 트랙에는 가수 ID가 들어 있어 팬 수를 정확히 조회할 수 있다(이름으로 찾을 때
+// 생기는 동명이인 문제가 없다). 빈 응답 버그 때문에 두 번까지 시도한다.
+async function deezerFansById(ids) {
+  const fans = new Map();
+  await Promise.all([...ids].map(async id => {
+    for (let i = 0; i < 2; i++) {
+      try {
+        const nonce = Math.random().toString(36).slice(2, 8);
+        const res = await fetch(`https://api.deezer.com/artist/${id}?_n=${nonce}`, DEEZER_FETCH);
+        if (res.ok) {
+          const j = await res.json();
+          if (typeof j.nb_fan === 'number') { fans.set(String(id), j.nb_fan); return; }
+        }
+      } catch { /* 아래에서 다시 시도한다 */ }
+    }
+  }));
+  return fans;
+}
+
 async function deezerSearch(q, entity, limit, debug) {
   const path = entity === 'album' ? 'search/album' : entity === 'musicArtist' ? 'search/artist' : 'search';
   const want = Number(limit) || 50;
@@ -464,7 +509,20 @@ async function deezerSearch(q, entity, limit, debug) {
           // 카탈로그에 원곡이 없다는 뜻이라(한국 곡에서 흔하다) MusicBrainz 쪽이 낫다.
           const topRank = Math.max(0, ...items.map(it => it.rank || 0));
           const weak = entity === 'song' && items.length > 0 && topRank <= 100000;
-          return { results: ranked.map(mapper), weak };
+
+          // rank는 그 트랙이 얼마나 재생됐는지일 뿐 가수의 유명세가 아니다
+          // ("Billie Jean — Sunset Chasers"가 64만인데 팬은 581명이다).
+          // 그래서 화면에 나갈 상위 후보의 가수 팬 수를 조회해 무명을 걷어낸다.
+          const head = ranked.slice(0, 25);
+          let famous;
+          if (entity === 'musicArtist') {
+            famous = keepFamous(head, it => it.nb_fan);   // 가수 검색엔 팬 수가 이미 들어 있다
+          } else {
+            const ids = [...new Set(head.map(it => it.artist?.id).filter(Boolean))].slice(0, 12);
+            const fans = await deezerFansById(ids);
+            famous = keepFamous(head, it => fans.get(String(it.artist?.id)));
+          }
+          return { results: famous.map(mapper), weak };
         }
         lastRaw = `empty data despite total=${json.total}`;
       }
