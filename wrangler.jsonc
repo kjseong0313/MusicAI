@@ -3,6 +3,12 @@
   "name": "musicai",
   "compatibility_date": "2026-05-19",
   "main": "src/index.js",
+  // 기본값은 요청자와 가까운 엣지에서 실행하는 것이라 한국에서 쓰면 도쿄(NRT)에 붙는다.
+  // 그 탓에 Deezer가 일본 카탈로그를 주고 Apple은 그 IP를 429로 막는다. smart를 켜면
+  // 상류에 가까운 곳에서 실행돼 egress IP가 달라진다.
+  "placement": {
+    "mode": "smart"
+  },
   "observability": {
     "enabled": true
   },
