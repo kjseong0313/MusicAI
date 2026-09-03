@@ -396,6 +396,26 @@ async function mbAlbumTracks(releaseGroupId) {
   return tracks;
 }
 
+// 무료 등급 한도. Google의 models.list에는 쿼터 정보가 없어서 AI Studio의 사용량
+// 화면(aistudio.google.com/usage)에 표시된 값을 옮겨 적었다. 계정 등급이나 Google
+// 정책에 따라 바뀔 수 있으므로 확인 날짜를 함께 내보내 화면에 밝힌다.
+// rpm=분당 요청, tpm=분당 토큰, rpd=하루 요청.
+const QUOTA_CHECKED_ON = '2026-09-03';
+const FREE_QUOTA = {
+  'gemini-2.5-flash':       { rpm: 5,  tpm: 250000, rpd: 20 },
+  'gemini-2.5-flash-lite':  { rpm: 10, tpm: 250000, rpd: 20 },
+  'gemini-3-flash-preview': { rpm: 5,  tpm: 250000, rpd: 20 },
+  'gemini-3.1-flash-lite':  { rpm: 15, tpm: 250000, rpd: 500 },
+  'gemini-3.5-flash':       { rpm: 5,  tpm: 250000, rpd: 20 },
+  'gemini-3.5-flash-lite':  { rpm: 15, tpm: 250000, rpd: 500 },
+  'gemini-3.6-flash':       { rpm: 5,  tpm: 250000, rpd: 20 },
+  'gemini-3.7-flash':       { rpm: 5,  tpm: 250000, rpd: 20 },
+  'gemini-3.8-flash':       { rpm: 5,  tpm: 250000, rpd: 20 },
+  // Pro 계열은 무료 등급에서 한도가 0이라 호출해도 막힌다.
+  'gemini-2.5-pro':         { rpm: 0,  tpm: 0,      rpd: 0 },
+  'gemini-3.1-pro-preview': { rpm: 0,  tpm: 0,      rpd: 0 },
+};
+
 // 글 대화용이 아닌 모델들. 이름으로 거른다.
 const NON_CHAT_MODEL_RE = /tts|image|nano-banana|transcribe|robotics|computer-use|deep-research|lyria|embedding|aqa|antigravity/i;
 
@@ -740,12 +760,15 @@ export default {
               inputLimit: m.inputTokenLimit || 0,
               outputLimit: m.outputTokenLimit || 0,
               thinking: m.thinking === true,
+              quota: FREE_QUOTA[String(m.name || '').replace(/^models\//, '')] || null,
             }))
             // 이 앱은 글로 묻고 답하는 데만 쓴다. 음성·이미지·영상 전용, 로봇·컴퓨터 조작,
             // 딥리서치처럼 용도가 다른 모델은 목록에서 뺀다(고르면 오류만 난다).
             .filter(m => !NON_CHAT_MODEL_RE.test(m.id))
-            .sort((a, b) => modelRank(b) - modelRank(a));
-          const response = new Response(JSON.stringify({ models }), {
+            // 하루 한도가 큰 모델을 위로 올린다. 무료로 쓸 때 실제로 중요한 건 버전보다
+            // 하루에 몇 번 부를 수 있느냐다(Lite는 500회, 나머지는 20회).
+            .sort((a, b) => (b.quota?.rpd || 0) - (a.quota?.rpd || 0) || modelRank(b) - modelRank(a));
+          const response = new Response(JSON.stringify({ models, quotaCheckedOn: QUOTA_CHECKED_ON }), {
             headers: {
               'Content-Type': 'application/json',
               'Access-Control-Allow-Origin': '*',

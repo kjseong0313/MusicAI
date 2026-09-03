@@ -173,10 +173,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="sheet">
       <div class="sheet-title">🤖 Gemini 모델 선택</div>
       <div id="model-list" style="max-height:58vh;overflow-y:auto;margin-bottom:.6rem"></div>
-      <div style="font-size:.68rem;color:var(--muted);margin-bottom:.6rem;line-height:1.5">
-        목록은 Google에서 직접 받아옵니다. 일일 한도는 Google이 API로 제공하지 않아
-        오늘 이 기기에서 쓴 횟수를 대신 표시합니다.
-      </div>
+      <div id="model-note" style="font-size:.68rem;color:var(--muted);margin-bottom:.6rem;line-height:1.5"></div>
       <button class="sheet-cancel" onclick="closeOverlay('model-overlay')">취소</button>
     </div>
   </div>
@@ -363,8 +360,10 @@ async function searchMusicBrainzDirect(q, stype, dbg){
 }
 
 const S={
-  model:localStorage.getItem('ma_model')||'gemini-3.1-flash-lite',
-  pill:localStorage.getItem('ma_pill')||'⚡ Lite 3.1',
+  // 기본값은 Lite 계열. 무료 등급에서 하루 500회로 다른 모델(20회)보다 25배 넉넉하다.
+  model:localStorage.getItem('ma_model')||'gemini-3.5-flash-lite',
+  pill:localStorage.getItem('ma_pill')||'3.5 Flash Lite',
+  quotaCheckedOn:'',
   stype:'song',
   models:[],
   track:null,
@@ -390,14 +389,16 @@ window.onload=function(){
 async function loadModels(){
   try{
     const saved=JSON.parse(localStorage.getItem('ma_models')||'null');
-    if(saved && Date.now()-saved.at < 86400000 && saved.list?.length){ S.models=saved.list; return; }
+    if(saved && Date.now()-saved.at < 86400000 && saved.list?.length){
+      S.models=saved.list; S.quotaCheckedOn=saved.checkedOn||''; return;
+    }
   }catch{}
   try{
     const res=await fetch(`${WORKER_URL}/models`,{signal:AbortSignal.timeout(8000)});
     const d=await res.json();
     if(d.models?.length){
-      S.models=d.models;
-      localStorage.setItem('ma_models',JSON.stringify({at:Date.now(),list:d.models}));
+      S.models=d.models; S.quotaCheckedOn=d.quotaCheckedOn||'';
+      localStorage.setItem('ma_models',JSON.stringify({at:Date.now(),list:d.models,checkedOn:d.quotaCheckedOn}));
     }
   }catch{ /* 못 받아오면 지금 고른 모델로 계속 쓴다 */ }
 }
@@ -437,16 +438,24 @@ async function openModelSheet(){
   const used=usageMap().n;
   box.innerHTML=S.models.map(m=>{
     const sel=m.id===S.model?' sel':'';
-    const ctx=m.inputLimit?`컨텍스트 ${Math.round(m.inputLimit/1024)}K`:'';
-    const think=m.thinking?' · 추론':'';
+    const q=m.quota;
     const n=used[m.id]||0;
+    // 무료로 쓸 때 실제로 걸리는 건 하루 요청 수라 그걸 앞세운다.
+    const daily=q ? (q.rpd ? `하루 ${q.rpd}회 · 분당 ${q.rpm}회` : '무료 한도 없음') : '한도 정보 없음';
+    const badge=q&&q.rpd>=500 ? '<div class="mbadge">넉넉</div>' : '';
+    const ctx=m.inputLimit?`컨텍스트 ${Math.round(m.inputLimit/1024)}K`:'';
     return `<div class="mopt${sel}" onclick="selModel('${esc(m.id)}')">
       <div class="mopt-icon">${m.id.includes('lite')?'⚡':m.id.includes('pro')?'🧠':'🔥'}</div>
       <div class="mopt-info"><div class="mopt-name">${esc(m.label||m.id)}</div>
-        <div class="mopt-desc">${esc(ctx+think)}</div></div>
-      <div class="mopt-right"><div class="mrpm">오늘 ${n}회</div></div>
+        <div class="mopt-desc">${esc(daily)}${m.thinking?' · 추론':''} · ${esc(ctx)}</div></div>
+      <div class="mopt-right">${badge}<div class="mrpm">오늘 ${n}${q&&q.rpd?' / '+q.rpd:''}회</div></div>
     </div>`;
   }).join('');
+  const note=document.getElementById('model-note');
+  if(note) note.innerHTML=
+    `모델 목록은 Google에서 직접 받아옵니다. 한도는 API로 제공되지 않아 `+
+    `<b>${esc(S.quotaCheckedOn||'-')}</b> 기준으로 적어 둔 값이라 지금과 다를 수 있습니다. `+
+    `<a href="https://aistudio.google.com/usage" target="_blank" rel="noopener" style="color:var(--accent)">AI Studio에서 실제 사용량 보기 ↗</a>`;
 }
 function closeOverlay(id){document.getElementById(id).classList.remove('open');}
 function selModel(model){
