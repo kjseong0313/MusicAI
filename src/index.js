@@ -238,6 +238,7 @@ async function musicBrainzSearch(q, limit) {
   const ranked = rankResults(recs, q, {
     title: it => it.title || '',
     artist: mbArtistOf,
+    album: it => it.releases?.[0]?.title || '',
     popularity: it => {
       const info = fame.get(normalize(mbArtistOf(it)));
       // 팬 수는 0~2천만이라 로그로 눌러 쓴다. 못 구한 가수(조회 실패 또는 Deezer에
@@ -456,8 +457,33 @@ function relevance(qNorm, title, artist) {
   );
 }
 
+// 리이슈·모음집임을 제목에 드러내는 낱말들. 숫자는 넣지 않는다 — Adele의 "21", "25"처럼
+// 숫자만으로 된 원본 앨범을 리이슈로 오인하기 때문이다.
+const REISSUE_RE = /deluxe|edition|anniversary|remaster|expanded|reissue|bonus|collection|compilation|greatest hits|best of|essential|\blive\b|\bhits\b/i;
+
+// 같은 곡이 여러 앨범에 실려 있을 때 어느 쪽을 대표로 보여줄지 고르는 가점·감점.
+// 재생수 차이를 뒤집을 만큼 크면 안 된다. 실제 Thriller 사례에서 원본 앨범과
+// 25주년판은 동점(둘 다 rank 상한 초과)이고, Number Ones는 0.074, 라이브반은
+// 0.141 뒤진다. 그래서 리이슈 감점은 동점만 뒤집고 재생수가 확실히 낮은 판은
+// 못 올라오는 0.10으로 잡는다.
+function albumAdjust(albumTitle) {
+  const t = String(albumTitle || '');
+  if (!t) return 0;
+  const reissue = REISSUE_RE.test(t) ? -0.10 : 0;          // 중간 세기
+  const lengthy = -Math.min(t.length / 2000, 0.02);        // 약하게: 짧은 앨범명 선호
+  return reissue + lengthy;
+}
+
+// 곡 제목에 붙은 판본 표기. 같은 곡 그룹 안에서 대표를 고를 때만 쓰므로, 진짜 제목에
+// 이런 낱말이 들어간 곡이 손해를 보는 일은 없다(그룹 구성원은 모두 같은 곡이다).
+const TRACK_VARIANT_RE = /\binst\b|\binst\.|instrumental|remix|\blive\b|acoustic|karaoke|\bedit\b|version|cover|remaster|\bmix\b|반주|노래방/i;
+
+// 앨범을 따져 대표를 다시 고르는 건 화면 위쪽 몇 개면 충분하다.
+const ALBUM_PICK_TOP = 5;
+
 // popularity는 0~1로 정규화된 인기도. 관련도가 비슷한 후보들 사이의 순서를 가른다.
-function rankResults(items, q, { title, artist, popularity }) {
+// album은 선택 사항 — 주면 같은 곡의 여러 수록 앨범 중 대표를 고르는 데 쓴다.
+function rankResults(items, q, { title, artist, popularity, album }) {
   const qNorm = normalize(q);
   const queryIsJapanese = JAPANESE_RE.test(q);
   const queryWantsJunk = JUNK_RE.test(q);
@@ -478,16 +504,33 @@ function rankResults(items, q, { title, artist, popularity }) {
   // 같아지므로, 이게 없으면 "Yesterday (take 1)"이 그냥 "Yesterday"의 대표로 뽑힌다.
   scored.sort((x, y) => y.score - x.score || String(title(x.item)).length - String(title(y.item)).length);
 
-  // 컴필레이션·재발매 탓에 같은 곡이 여러 번 나오므로 점수가 높은 쪽만 남긴다.
-  const seen = new Set();
-  const out = [];
-  for (const { item } of scored) {
-    const key = `${normalize(title(item))}|${normalize(artist(item))}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
+  // 컴필레이션·재발매 탓에 같은 곡이 여러 번 나오므로 하나만 남긴다.
+  const groups = new Map();
+  for (const entry of scored) {
+    const key = `${normalize(title(entry.item))}|${normalize(artist(entry.item))}`;
+    if (groups.has(key)) groups.get(key).push(entry);
+    else groups.set(key, [entry]);
   }
-  return out;
+
+  return [...groups.values()].map((members, i) => {
+    // 위쪽 몇 곡만 수록 앨범까지 따져 대표를 고른다. Deezer는 같은 곡을 앨범마다 따로
+    // 갖고 있어서, 재생수가 같으면 25주년 확장판이 원본 앨범을 밀어내기 때문이다.
+    if (!album || i >= ALBUM_PICK_TOP || members.length === 1) return members[0].item;
+    let best = members[0], bestScore = -Infinity;
+    for (const m of members) {
+      // 앨범과 함께 곡 제목도 본다. 이게 없으면 앨범명이 짧다는 이유로 "좋은 날 (inst.)"
+      // 같은 판본이 원곡의 대표로 뽑힌다.
+      // 판본 감점(0.15)은 리이슈 감점(0.10)보다 크게 잡는다. 곡 자체가 인스트·리믹스인
+      // 것이, 원곡이되 모음집에 실린 것보다 나쁘기 때문이다("좋은 날 (inst.)"이 실린
+      // REAL보다, "좋은 날"이 실린 Smash Hits 쪽을 보여주는 게 맞다).
+      const rawTitle = String(title(m.item));
+      const s = m.score + albumAdjust(album(m.item))
+              - Math.min(rawTitle.length / 2000, 0.02)
+              - (TRACK_VARIANT_RE.test(rawTitle) ? 0.15 : 0);
+      if (s > bestScore) { bestScore = s; best = m; }
+    }
+    return best.item;
+  });
 }
 
 const HANGUL_RE = /[가-힣]/;
@@ -579,13 +622,14 @@ async function deezerSearch(q, entity, limit, debug) {
         if (items.length || !json.total) {
           const titleOf = it => it.title || it.name || '';
           const artistOf = it => it.artist?.name || '';
+          const albumOf = it => it.album?.title || '';
           // 트랙의 rank는 0~약 100만, 가수의 nb_fan은 팬 수다.
           const trackPop = it => entity === 'musicArtist'
             ? Math.min((it.nb_fan || 0) / 5000000, 1)
             : Math.min((it.rank || 0) / 800000, 1);
 
           // 1차 정렬은 관련도와 재생수로만 한다. 팬 수를 조회할 후보를 추리는 용도다.
-          const head = rankResults(items, q, { title: titleOf, artist: artistOf, popularity: trackPop })
+          const head = rankResults(items, q, { title: titleOf, artist: artistOf, popularity: trackPop, album: albumOf })
             .slice(0, Math.min(want, 25));
           const mapper = entity === 'album' ? mapDeezerAlbum : entity === 'musicArtist' ? mapDeezerArtist : mapDeezerTrack;
           // rank 100000은 Deezer가 무명 업로드에 주는 최저값이다. 전부 그 값이면 이 지역
@@ -609,6 +653,7 @@ async function deezerSearch(q, entity, limit, debug) {
           const ranked = rankResults(head, q, {
             title: titleOf,
             artist: artistOf,
+            album: albumOf,
             popularity: it => {
               const f = fansOf(it);
               const fame = f === undefined ? 0.5 : Math.min(Math.log10(f + 1) / 7, 1);
