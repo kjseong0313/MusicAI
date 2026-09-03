@@ -910,6 +910,12 @@ export default {
     // ── iTunes lookup 프록시 (GET) ──
     if (url.pathname === '/itunes-lookup') {
       const id = url.searchParams.get('id');
+      if (!/^\d+$/.test(id || '')) {
+        return new Response(JSON.stringify({ error: 'id가 없거나 숫자가 아닙니다' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
       const entity = url.searchParams.get('entity') || 'song';
       const country = url.searchParams.get('country') || 'US';
       const limit = url.searchParams.get('limit') || '200';
@@ -942,6 +948,8 @@ export default {
       return new Response('Not found', { status: 404 });
     }
 
+    const streaming = url.pathname === '/stream';
+
     let body;
     try {
       body = await request.json();
@@ -972,14 +980,38 @@ export default {
     let lastError = { message: '알 수 없는 오류', code: 502 };
     for (const key of keys) {
       try {
+        // 스트리밍은 생성되는 대로 글자를 흘려보낸다. 긴 답을 다 만들 때까지 빈 화면을
+        // 보고 있지 않아도 된다. 응답 본문을 그대로 브라우저까지 통과시킨다.
+        const method = streaming ? 'streamGenerateContent?alt=sse&' : 'generateContent?';
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${body.model}:generateContent?key=${key}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${body.model}:${method}key=${key}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body.payload)
           }
         );
+
+        if (streaming) {
+          if (res.ok && res.body) {
+            return new Response(res.body, {
+              headers: {
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                'Cache-Control': 'no-cache',
+                'Access-Control-Allow-Origin': '*'
+              }
+            });
+          }
+          // 스트림을 열지 못했으면 본문에 오류가 담겨 온다. 아래 실패 처리로 넘긴다.
+          const errJson = await res.json().catch(() => null);
+          lastError = {
+            message: scrubKey(errJson?.error?.message || `HTTP ${res.status}`),
+            code: errJson?.error?.code || res.status
+          };
+          if (lastError.code === 429) continue;
+          break;
+        }
+
         const data = await res.json();
         if (data.error) {
           lastError = { message: scrubKey(data.error.message), code: data.error.code || res.status };
