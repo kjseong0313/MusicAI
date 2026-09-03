@@ -396,6 +396,20 @@ async function mbAlbumTracks(releaseGroupId) {
   return tracks;
 }
 
+// 글 대화용이 아닌 모델들. 이름으로 거른다.
+const NON_CHAT_MODEL_RE = /tts|image|nano-banana|transcribe|robotics|computer-use|deep-research|lyria|embedding|aqa|antigravity/i;
+
+// 목록 정렬용 점수. gemini 계열을 먼저, 그 안에서 버전이 높을수록, 같은 버전이면
+// preview가 아닌 정식판을 위로 올린다. gemma는 버전 숫자가 4라 그냥 두면 gemini 3.8을
+// 제치고 맨 위로 오므로 계열 가중치로 눌러 둔다.
+function modelRank(m) {
+  const family = /^gemini/.test(m.id) ? 1000 : 0;
+  const v = parseFloat((m.id.match(/(\d+\.\d+|\d+)/) || [])[1] || '0');
+  const stable = /preview|exp/i.test(m.id) ? 0 : 1;
+  const latest = /-latest$/.test(m.id) ? 0.5 : 0;   // 별칭은 구체 버전보다 아래
+  return family + v * 10 + stable - latest;
+}
+
 // ── 검색 결과 재순위 ──
 // Deezer/MusicBrainz는 iTunes만큼 정렬이 좋지 않다(인기 없는 커버·가라오케·다른 언어
 // 재발매가 위로 올라온다). 관련도와 인기도를 직접 계산해 다시 정렬한다.
@@ -696,6 +710,57 @@ export default {
 
     const url = new URL(request.url);
     const cache = caches.default;
+
+    // ── 사용 가능한 Gemini 모델 목록 (GET) ──
+    // 모델이 늘거나 사라져도 앱을 고치지 않도록 Google에서 직접 받아온다.
+    if (url.pathname === '/models') {
+      const keys = [env.GEMINI_KEY1, env.GEMINI_KEY2].filter(Boolean);
+      if (!keys.length) {
+        return new Response(JSON.stringify({ error: '환경변수에 키가 없습니다' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      const cacheKey = new Request(url.toString(), request);
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
+
+      let lastError = '';
+      for (const key of keys) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${key}`);
+          const json = await res.json();
+          if (json.error) { lastError = json.error.message; continue; }
+          const models = (json.models || [])
+            .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+            .map(m => ({
+              id: String(m.name || '').replace(/^models\//, ''),
+              label: m.displayName || '',
+              desc: m.description || '',
+              inputLimit: m.inputTokenLimit || 0,
+              outputLimit: m.outputTokenLimit || 0,
+              thinking: m.thinking === true,
+            }))
+            // 이 앱은 글로 묻고 답하는 데만 쓴다. 음성·이미지·영상 전용, 로봇·컴퓨터 조작,
+            // 딥리서치처럼 용도가 다른 모델은 목록에서 뺀다(고르면 오류만 난다).
+            .filter(m => !NON_CHAT_MODEL_RE.test(m.id))
+            .sort((a, b) => modelRank(b) - modelRank(a));
+          const response = new Response(JSON.stringify({ models }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Cache-Control': 'public, max-age=21600'
+            }
+          });
+          if (models.length) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+          return response;
+        } catch (e) { lastError = e.message; }
+      }
+      return new Response(JSON.stringify({ error: lastError }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
 
     // ── iTunes 검색 프록시 (GET) ──
     if (url.pathname === '/itunes') {
