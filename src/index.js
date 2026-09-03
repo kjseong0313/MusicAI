@@ -416,6 +416,12 @@ const FREE_QUOTA = {
   'gemini-3.1-pro-preview': { rpm: 0,  tpm: 0,      rpd: 0 },
 };
 
+// API 키는 URL 쿼리로 붙기 때문에, fetch가 던지는 오류 메시지에 URL이 통째로 담기면
+// 키가 브라우저까지 흘러간다. 밖으로 내보내는 메시지에서는 항상 지운다.
+function scrubKey(msg) {
+  return String(msg || '').replace(/key=[\w-]+/gi, 'key=***');
+}
+
 // 글 대화용이 아닌 모델들. 이름으로 거른다.
 const NON_CHAT_MODEL_RE = /tts|image|nano-banana|transcribe|robotics|computer-use|deep-research|lyria|embedding|aqa|antigravity/i;
 
@@ -750,7 +756,7 @@ export default {
         try {
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${key}`);
           const json = await res.json();
-          if (json.error) { lastError = json.error.message; continue; }
+          if (json.error) { lastError = scrubKey(json.error.message); continue; }
           const models = (json.models || [])
             .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
             .map(m => ({
@@ -963,7 +969,7 @@ export default {
       });
     }
 
-    let lastError = '';
+    let lastError = { message: '알 수 없는 오류', code: 502 };
     for (const key of keys) {
       try {
         const res = await fetch(
@@ -975,8 +981,13 @@ export default {
           }
         );
         const data = await res.json();
-        if (data.error?.code === 429) { lastError = '429'; continue; }
-        if (data.error) { lastError = data.error.message; continue; }
+        if (data.error) {
+          lastError = { message: scrubKey(data.error.message), code: data.error.code || res.status };
+          // 한도 초과는 다른 키로 넘어가 볼 값어치가 있지만, 잘못된 요청이나 없는 모델은
+          // 키를 바꿔도 같은 결과라 곧바로 알려준다.
+          if (lastError.code === 429) continue;
+          break;
+        }
         return new Response(JSON.stringify(data), {
           headers: {
             'Content-Type': 'application/json',
@@ -984,12 +995,16 @@ export default {
           }
         });
       } catch(e) {
-        lastError = e.message;
+        lastError = { message: scrubKey(e.message), code: 502 };
       }
     }
 
-    return new Response(JSON.stringify({ error: { message: '실패: ' + lastError } }), {
-      status: 429,
+    // 상태 코드와 error.code를 그대로 넘겨준다. 예전에는 무엇이 잘못됐든 429로 돌려줘서
+    // 프론트엔드가 한도 초과를 알아채지 못하고 짧은 간격으로만 재시도했다.
+    const status = Number.isInteger(lastError.code) && lastError.code >= 400 && lastError.code <= 599
+      ? lastError.code : 502;
+    return new Response(JSON.stringify({ error: { message: lastError.message, code: lastError.code } }), {
+      status,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
     });
   }
