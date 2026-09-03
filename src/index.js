@@ -98,11 +98,22 @@ function escapeLucene(s) {
 // 라틴 문자에만 붙인다 — 한글·한자는 한 글자가 곧 한 음절이라 퍼지를 걸면 "소주한잔"이
 // "커피한잔"에 매칭된다. 라틴 문자의 오타("rapsody")와는 성격이 다르다.
 function mbQuery(q) {
-  return String(q || '').split(/\s+/).filter(Boolean)
+  const base = String(q || '').split(/\s+/).filter(Boolean)
     // ~1(편집 거리 1)로 조인다. rapsody→rhapsody 같은 한 글자 오타는 그대로 잡으면서
     // 기본값 ~2가 jean에 joan·sean·dean까지 끌어오는 잡음을 줄인다.
     .map(t => /^[A-Za-z0-9]{4,}$/.test(t) ? `${t}~1` : escapeLucene(t))
     .join(' ');
+
+  // 한국어는 같은 말을 붙여 쓰기도 띄어 쓰기도 한다. MusicBrainz에 "벚꽃 엔딩"으로
+  // 등록된 곡은 "벚꽃엔딩"으로 검색하면 한 건도 안 잡힌다. 띄어쓰기가 없는 한글
+  // 검색어는 띄어쓰기를 넣은 형태를 모두 OR로 함께 던진다(요청은 그대로 한 번이다).
+  const bare = String(q || '').trim();
+  if (/^[가-힣]{3,8}$/.test(bare)) {
+    const spaced = [];
+    for (let i = 1; i < bare.length; i++) spaced.push(`"${bare.slice(0, i)} ${bare.slice(i)}"`);
+    return `(${base} OR ${spaced.join(' OR ')})`;
+  }
+  return base;
 }
 
 // MusicBrainz의 score(0~100)는 인기도가 아니라 자체 관련도 점수다. 제목이 똑같은 커버가
@@ -154,7 +165,11 @@ async function deezerArtistFame(names) {
         if (res.ok) {
           const json = await res.json();
           const exact = (json.data || []).filter(a => normalize(a.name) === want);
-          if (exact.length) { fame.set(want, Math.max(...exact.map(a => a.nb_fan || 0))); return; }
+          if (exact.length) {
+            const best = exact.sort((x, y) => (y.nb_fan || 0) - (x.nb_fan || 0))[0];
+            fame.set(want, { fans: best.nb_fan || 0, id: best.id });
+            return;
+          }
           // 이름이 정확히 겹치는 가수가 진짜 없으면 다시 걸어도 결과가 같다.
           if ((json.data || []).length) return;
         }
@@ -163,6 +178,30 @@ async function deezerArtistFame(names) {
     /* 끝내 못 구하면 이 가수는 빈도 신호로만 판단한다 */
   }));
   return fame;
+}
+
+// 그 가수의 대표곡 목록을 가져온다. MusicBrainz에는 곡별 인기도가 없어서 가수 유명세만
+// 보면 "bad guy"가 Billie Eilish(팬 924만)가 아니라 같은 제목의 곡을 가진 Eminem
+// (1,909만)에게 간다. 대표곡 50곡 안에는 Billie Eilish 쪽에만 들어 있다.
+async function deezerTopTracks(ids) {
+  const tops = new Map();
+  await Promise.all([...ids].map(async id => {
+    // 이 엔드포인트도 빈 응답 버그를 맞는다. 한 번만 걸면 신호가 통째로 날아가서
+    // 유명세만으로 순서가 정해지고, 그러면 "bad guy"가 Eminem에게 간다.
+    for (let i = 0; i < 3; i++) {
+      try {
+        const nonce = Math.random().toString(36).slice(2, 8);
+        const res = await fetch(`https://api.deezer.com/artist/${id}/top?limit=50&_n=${nonce}`, DEEZER_FETCH);
+        if (res.ok) {
+          const json = await res.json();
+          const titles = json.data || [];
+          if (titles.length) { tops.set(String(id), new Set(titles.map(t => normalize(t.title)))); return; }
+        }
+      } catch { /* 아래에서 다시 시도한다 */ }
+      await new Promise(r => setTimeout(r, 200 + i * 200));
+    }
+  }));
+  return tops;
 }
 
 async function musicBrainzSearch(q, limit) {
@@ -186,25 +225,35 @@ async function musicBrainzSearch(q, limit) {
   // 실제로 화면에 나갈 상위 후보의 가수만 조회한다.
   const prelim = rankResults(recs, q, { title: it => it.title || '', artist: mbArtistOf, popularity: byHits });
   const topNames = [...new Set(prelim.slice(0, 30).map(mbArtistOf).filter(Boolean))].slice(0, 10);
-  const fame = await deezerArtistFame(topNames);
+  // 한글 검색어에는 Deezer 유명세를 쓰지 않는다. Deezer의 한국 데이터가 사실상 비어
+  // 있어서(버스커 버스커 팬 2명, 임재범 21명, 아이유는 그 이름으로 아예 안 잡힌다)
+  // 이걸로 순위를 매기거나 걸러내면 원곡이 무명 커버에게 밀리거나 통째로 잘려 나간다.
+  // 그런 검색에서는 MusicBrainz에 몇 건이나 등록됐는지(byHits)가 훨씬 믿을 만하다.
+  const korean = HANGUL_RE.test(q);
+  const fame = korean ? new Map() : await deezerArtistFame(topNames);
+  // 서브요청 예산(요청당 50개) 안에 들도록 6명까지만 대표곡을 확인한다.
+  const tops = korean ? new Map()
+    : await deezerTopTracks([...fame.values()].map(v => v.id).filter(Boolean).slice(0, 6));
 
   const ranked = rankResults(recs, q, {
     title: it => it.title || '',
     artist: mbArtistOf,
     popularity: it => {
-      const key = normalize(mbArtistOf(it));
-      const fans = fame.get(key);
-      // 팬 수는 0~2천만이라 로그로 눌러 쓴다.
-      if (fans !== undefined) return Math.min(Math.log10(fans + 1) / 7, 1);
-      // 팬 수를 못 구한 가수(조회 실패 또는 Deezer에 없음)는 중립값에서 시작한다.
-      // 낮게 깔면 조회에 성공한 덜 유명한 커버 가수에게 원곡이 밀린다.
-      return 0.45 + byHits(it) * 0.3;
+      const info = fame.get(normalize(mbArtistOf(it)));
+      // 팬 수는 0~2천만이라 로그로 눌러 쓴다. 못 구한 가수(조회 실패 또는 Deezer에
+      // 없음)는 중립값에서 시작한다 — 낮게 깔면 조회에 성공한 덜 유명한 커버 가수에게
+      // 원곡이 밀린다.
+      const base = info ? Math.min(Math.log10(info.fans + 1) / 7, 1) : 0.45 + byHits(it) * 0.3;
+      // 그 가수의 대표곡이면 확실히 끌어올린다.
+      const isSignature = info && tops.get(String(info.id))?.has(normalize(it.title || ''));
+      return isSignature ? base + 0.35 : base;
     },
   });
 
   // 무명 가수의 커버를 걷어낸다. 팬 수를 확인한 가수만 대상이므로, 조회하지 못한
-  // 가수는 그대로 남는다.
-  const famous = keepFamous(ranked.slice(0, 25), it => fame.get(normalize(mbArtistOf(it))));
+  // 가수는 그대로 남는다. 한글 검색은 위 이유로 아예 거르지 않는다.
+  const head = ranked.slice(0, 25);
+  const famous = korean ? head : keepFamous(head, it => fame.get(normalize(mbArtistOf(it)))?.fans);
   return famous.slice(0, want).map(mapMusicBrainzRecording);
 }
 
@@ -350,7 +399,7 @@ async function mbAlbumTracks(releaseGroupId) {
 // Deezer/MusicBrainz는 iTunes만큼 정렬이 좋지 않다(인기 없는 커버·가라오케·다른 언어
 // 재발매가 위로 올라온다). 관련도와 인기도를 직접 계산해 다시 정렬한다.
 const JAPANESE_RE = /[぀-ヿ]/;
-const JUNK_RE = /karaoke|tribute|made popular by|originally performed|as made famous|backing track|instrumental version|8[\s-]?bit|lullaby|가라오케|노래방|반주/i;
+const JUNK_RE = /karaoke|tribute|made popular by|originally performed|as made famous|backing track|instrumental version|8[\s-]?bit|lullaby|various artists|가라오케|노래방|반주/i;
 
 function normalize(s) {
   return String(s || '')
@@ -380,6 +429,9 @@ function editDistance(a, b) {
 function similarity(q, target) {
   if (!q || !target) return 0;
   if (q === target) return 1;
+  // 띄어쓰기를 뺀 것도 같으면 같은 말이다. 한국어는 붙여 쓰기도 띄어 쓰기도 해서
+  // "벚꽃엔딩"과 "벚꽃 엔딩"이 다른 문자열로 비교되면 정확히 일치한 무명 커버가 이긴다.
+  if (q.replace(/ /g, '') === target.replace(/ /g, '')) return 1;
   if (target.startsWith(q)) return 0.95;   // "bohemian" → "Bohemian Rhapsody"
   if (target.includes(q)) return 0.85;
   const qTokens = q.split(' ').filter(Boolean);
@@ -436,6 +488,19 @@ function rankResults(items, q, { title, artist, popularity }) {
     out.push(item);
   }
   return out;
+}
+
+const HANGUL_RE = /[가-힣]/;
+
+// 검색어의 낱말이 결과의 제목·가수 어디에도 없으면 엉뚱한 곡을 잡은 것이다
+// ("dynamite bts"에 "Dynamite — Taio Cruz"가 나오면 bts가 어디에도 없다).
+// 로마자 낱말만 본다 — "lemon 米津玄師"의 결과는 "Kenshi Yonezu"로 로마자 표기라
+// 한자·한글 낱말은 표기가 달라도 정답인 경우가 많다.
+function coversQuery(q, title, artist) {
+  const hay = normalize(`${title} ${artist}`);
+  return normalize(q).split(' ')
+    .filter(t => /^[a-z0-9]{2,}$/.test(t))
+    .every(t => hay.includes(t));
 }
 
 // 팬이 이보다 적으면 어떤 검색에서도 듣보로 본다
@@ -550,12 +615,23 @@ async function deezerSearch(q, entity, limit, debug) {
               return trackPop(it) * 0.5 + fame * 0.5;
             },
           });
-          return { results: keepFamous(ranked, fansOf).map(mapper), weak };
+
+          // Deezer가 그럴듯한 오답을 내놓는 두 경우를 더 잡아 MusicBrainz로 넘긴다.
+          const best = ranked[0];
+          const missed = best && !coversQuery(q, titleOf(best), artistOf(best));
+          // Deezer의 한국 카탈로그는 신뢰도가 낮다(임재범이 팬 21명으로 잡힌다). 그래서
+          // 한글 검색어에는 1위가 확실히 유명한 가수일 때만 Deezer 결과를 인정한다.
+          const koreanMiss = best && HANGUL_RE.test(q) && (fansOf(best) || 0) < 100000;
+          const badMatch = entity === 'song' && (missed || koreanMiss);
+
+          return { results: keepFamous(ranked, fansOf).map(mapper), weak: weak || badMatch };
         }
         lastRaw = `empty data despite total=${json.total}`;
       }
     }
-    if (i < ATTEMPTS - 1) await new Promise(r => setTimeout(r, 150));
+    // 빈 응답은 시간대를 타서, 한 번 나쁜 구간에 들어가면 몇 초씩 이어진다. 재시도를
+    // 촘촘히 몰아치면 그 구간을 통째로 맞고 전부 실패하므로 간격을 점점 넓힌다.
+    if (i < ATTEMPTS - 1) await new Promise(r => setTimeout(r, Math.min(150 + i * 180, 900)));
   }
   throw new Error(`Deezer: ${lastRaw}`);
 }
