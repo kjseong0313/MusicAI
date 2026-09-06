@@ -113,6 +113,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .result-box-title{font-size:.65rem;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:.8rem}
 .result-text{font-size:.9rem;line-height:1.8;color:#ddd;white-space:pre-wrap}
 .md-h{display:inline-block;color:var(--accent);font-size:.95rem;margin-top:.4rem}
+.md-hr{display:block;height:1px;background:var(--border);margin:.7rem 0}
 .lyric-plain{font-size:.9rem;color:#ddd;line-height:2.1;white-space:pre-line}
 .lyric-line{margin-bottom:.8rem;padding-bottom:.8rem;border-bottom:1px solid rgba(255,255,255,.05)}
 .lyric-line:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
@@ -647,7 +648,10 @@ async function selectItem(item){
 
   // 곡 선택
   const art=(item.artworkUrl100||item.artworkUrl60||'').replace('100x100bb','600x600bb');
-  loadTrack(item.trackName||'', item.artistName||'', art);
+  loadTrack(item.trackName||'', item.artistName||'', art, {
+    album:item.collectionName||'', year:(item.releaseDate||'').substring(0,4),
+    durationMs:item.trackTimeMillis||0, genre:item.primaryGenreName||''
+  });
 }
 
 async function loadAlbumTracks(album){
@@ -703,7 +707,8 @@ function renderList(items,isTrackList,artistName,artUrl){
       const dur=item.trackTimeMillis?fmtMs(item.trackTimeMillis):(item.duration||'');
       const num=item.trackNumber||idx+1;
       const trackArt=artUrl||(item.artworkUrl100||'').replace('100x100bb','600x600bb');
-      div.onclick=()=>loadTrack(title,artistName||item.artistName||'',trackArt);
+      div.onclick=()=>loadTrack(title,artistName||item.artistName||'',trackArt,
+        {album:S.browseStack[S.browseStack.length-1]?.label||'', durationMs:item.trackTimeMillis||0});
       div.innerHTML=`<div class="ri-img" style="font-size:.85rem;color:var(--muted);font-family:'DM Mono',monospace;font-weight:600">${num}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(dur)}</div></div>`;
     }else{
       const title=item.collectionName||item.title||'';
@@ -716,8 +721,11 @@ function renderList(items,isTrackList,artistName,artUrl){
 }
 
 // ── LOAD TRACK ──
-function loadTrack(title,artist,artUrl){
-  S.track={title,artist,artUrl,lyrics:null,lyricsSrc:null};
+// meta에는 검색 결과에 딸려 온 앨범·발매연도·길이·장르를 담는다. 곡 설명을 만들 때
+// 모델에게 넘길 실제 근거라, 예전처럼 버리면 제목과 가수만 보고 쓰게 된다.
+function loadTrack(title,artist,artUrl,meta={}){
+  S.track={title,artist,artUrl,lyrics:null,lyricsSrc:null,
+           album:meta.album||'',year:meta.year||'',durationMs:meta.durationMs||0,genre:meta.genre||''};
   S.cache={};
   // 분석탭 업데이트
   document.getElementById('ana-now').innerHTML=`
@@ -876,27 +884,50 @@ async function doSection(type){
       await fetchLyrics(S.track.artist,S.track.title);
     }
     content.innerHTML='<div class="loading"><div class="spin"></div>곡 설명 생성 중...</div>';
+    // 검색 결과에 딸려 온 사실들. 모델이 제목과 가수만 보고 쓰지 않도록 함께 넘긴다.
+    const facts = [
+      S.track.album && `수록 앨범: ${S.track.album}`,
+      S.track.year && `발표: ${S.track.year}년`,
+      S.track.durationMs && `길이: ${fmtMs(S.track.durationMs)}`,
+      S.track.genre && `분류: ${S.track.genre}`,
+    ].filter(Boolean).join(' · ');
     const lyricsPart = S.track.lyrics
-      ? `\n\n【가사】\n${S.track.lyrics.slice(0,4000)}\n`
-      : '';
-    const prompt=`이 곡을 처음 듣는 사람에게 소개하듯 설명해주세요.
+      ? `\n\n【가사 전문】\n${S.track.lyrics.slice(0,6000)}\n`
+      : '\n\n(가사를 찾지 못했습니다. 가사 인용 없이 설명해주세요.)\n';
+    const prompt=`이 곡을 처음 듣는 사람에게 깊이 있게 소개해주세요.
 
-🎵 ${S.track.title} — ${S.track.artist}${lyricsPart}
+🎵 ${S.track.title} — ${S.track.artist}${facts?`\n(${facts})`:''}${lyricsPart}
 
-【먼저 스스로 가늠할 것】
-이 곡에 대해 실제로 아는 정보가 얼마나 되는지 판단하세요. 널리 알려진 곡이면 배경과
-맥락까지 풍부하게 쓰고, 정보가 적은 곡이면 아는 범위 안에서 간결하게 쓰면 됩니다.
-분량을 채우려고 없는 이야기를 지어내지 마세요.
+【분량과 태도】
+아는 정보가 충분한 곡이면 넉넉하게 써주세요. 여섯 문단이 넘어도 좋습니다.
+정보가 적은 곡이라면 억지로 늘리는 대신, 가사와 사운드처럼 곡 자체를 보고 말할 수
+있는 부분을 깊이 파고들어 채워주세요. 분량을 채우려고 사실을 지어내는 것만은
+절대 하지 마세요. 모르는 것을 모른다고 쓰는 편이 훨씬 낫습니다.
 
-【항상 다룰 것】
-- 어떤 느낌의 곡인지 (장르, 분위기, 템포감, 목소리와 연주의 인상)
-- 가사가 무엇을 말하는지 (주제와 정서)
-- 처음 들을 때 주목하면 좋은 지점
+【이렇게 구성해주세요 — 각 항목은 "## 소제목" 형태로】
 
-【아는 경우에만 다룰 것 — 모르면 그 항목을 통째로 빼세요】
-- 만들어진 배경이나 제작 과정
-- 아티스트에게 이 곡이 갖는 의미
-- 발표 당시의 반응, 성적, 이후의 영향
+## 한눈에
+어떤 곡인지 한 문단으로. 처음 듣는 사람이 무엇을 기대하면 되는지.
+
+## 사운드
+장르와 질감, 중심이 되는 악기, 리듬과 템포감, 보컬의 톤과 창법.
+곡이 진행되며 분위기가 어떻게 달라지는지(도입 → 후렴 → 후반부).
+
+## 가사가 하는 이야기
+화자가 누구이고 어떤 상황인지, 전체를 관통하는 정서.
+가사가 주어졌다면 인상적인 구절을 2~4개 원문 그대로 인용하고("..." 형태),
+각각이 무슨 뜻이고 왜 인상적인지 풀어주세요. 이게 이 설명의 핵심입니다.
+
+## 이렇게 들어보세요
+구체적으로 어디에 귀를 기울이면 좋은지. 특정 악기가 들어오는 순간, 목소리가
+갈라지거나 힘이 실리는 지점, 후렴에서 바뀌는 화음, 가사의 반전 같은 것들.
+
+## 맥락
+만들어진 배경, 앨범 안에서의 위치, 아티스트의 어느 시기인지, 발표 당시 반응.
+— 아는 만큼만 쓰고, 아는 게 없으면 이 항목을 통째로 빼세요.
+
+## 이런 걸 좋아한다면
+비슷한 결의 곡이나 아티스트를 두세 개, 왜 비슷한지 한 줄씩 곁들여서.
 
 【지켜야 할 것】
 - 조성·BPM·코드 진행 같은 수치는 확실할 때만 쓰고, 아니면 아예 언급하지 마세요.
@@ -905,12 +936,12 @@ async function doSection(type){
   평범한 곡은 평범한 곡으로 설명하면 됩니다.
 - 표시된 가수가 원곡자가 아닐 수 있습니다(커버·리메이크). 그럴 때 원곡 이야기를
   이 가수의 것처럼 쓰면 안 됩니다. 원곡이 누구 것인지 먼저 밝히고, 이 가수의 버전에
-  대해 아는 만큼만 쓰세요. 모르면 커버라는 사실만 밝히고 곡 자체를 설명하세요.
-- 아는 게 거의 없으면 "이 곡에 대해 알려진 정보는 많지 않습니다"라고 먼저 밝히고,
-  가사와 곡 자체에 집중해 설명하세요. 그게 지어내는 것보다 훨씬 낫습니다.
+  대해 아는 만큼만 쓰세요.
+- 가사를 인용할 때는 위에 주어진 원문을 그대로 옮기세요. 기억으로 바꿔 쓰지 마세요.
+- 인사말이나 "설명해 드리겠습니다" 같은 머리말 없이 "## 한눈에"부터 바로 시작하세요.
 
-한국어로, 자연스러운 문단으로 써주세요.`;
-    try{const r=await runSection('desc',prompt,1024);S.cache.desc=r;}
+한국어로 써주세요.`;
+    try{const r=await runSection('desc',prompt,4096);S.cache.desc=r;}
     catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
     return;
   }
@@ -1269,6 +1300,10 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function mdToHtml(s){
   return esc(s)
     .replace(/^\s*#{1,6}\s*(.+)$/gm, '<b class="md-h">$1</b>')
+    // 구분선을 먼저 처리한다. 목록 변환보다 뒤에 두면 "---"가 "· --"가 되어 버린다.
+    .replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, '<span class="md-hr"></span>')
+    // esc를 거치면 인용 부호 ">"는 "&gt;"가 되어 있다. 들여쓰기로 바꿔 준다.
+    .replace(/^\s*&gt;\s?/gm, '　　')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/^\s*[-*]\s+/gm, '· ');
 }
