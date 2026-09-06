@@ -133,6 +133,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .bbl{max-width:82%;padding:.7rem .9rem;border-radius:14px;font-size:.86rem;line-height:1.6;white-space:pre-wrap}
 .bbl.u{background:var(--accent);color:#000;align-self:flex-end;border-bottom-right-radius:4px;font-weight:500}
 .bbl.a{background:var(--bg3);color:#ddd;align-self:flex-start;border-bottom-left-radius:4px;border:1px solid rgba(255,255,255,.06)}
+.diff-go{align-self:flex-start;background:var(--accent);color:#000;border:none;border-radius:12px;padding:.7rem 1.1rem;font-size:.88rem;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer;margin-top:.2rem}
 .chat-bar{display:flex;gap:.6rem;padding:.8rem;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
 .chat-bar input{flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.7rem .9rem;color:var(--text);font-size:.9rem;font-family:'Noto Sans KR',sans-serif;outline:none;transition:border .2s}
 .chat-bar input:focus{border-color:var(--accent)}
@@ -184,7 +185,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <div class="tabs">
     <div class="tab active" id="tab-s" onclick="goTab('s')">🔍 검색</div>
     <div class="tab" id="tab-a" onclick="goTab('a')">🎵 분석</div>
-    <div class="tab" id="tab-c" onclick="goTab('c')">💬 대화</div>
+    <div class="tab" id="tab-c" onclick="goTab('c')">🎚️ 난이도</div>
   </div>
 
   <!-- SEARCH TAB -->
@@ -255,15 +256,15 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <div class="chat-now" id="chat-now">
         <div class="chat-meta">
           <div class="chat-track" id="chat-track-name">선택된 곡 없음</div>
-          <div class="chat-sub">곡을 선택하면 그 곡에 대해 자유롭게 대화할 수 있어요</div>
+          <div class="chat-sub">곡을 고르면 파트별로 연주·노래 난이도를 따져줍니다</div>
         </div>
       </div>
     </div>
     <div class="chat-area" id="chat-area">
-      <div class="bbl a">안녕하세요! 검색 탭에서 곡을 선택한 후 음악에 대해 뭐든 물어보세요 🎵</div>
+      <div class="bbl a">검색 탭에서 곡을 먼저 선택해주세요 🎵</div>
     </div>
     <div class="chat-bar">
-      <input type="text" id="chat-input" placeholder="궁금한 거 물어보세요..." onkeydown="if(event.key==='Enter')sendChat()">
+      <input type="text" id="chat-input" placeholder="난이도에 대해 더 물어보기..." onkeydown="if(event.key==='Enter')sendChat()">
       <button class="chat-send" onclick="sendChat()">↑</button>
     </div>
   </div>
@@ -743,8 +744,7 @@ function loadTrack(title,artist,artUrl,meta={}){
     <div class="chat-cover">${artUrl?`<img src="${artUrl}">`:'🎵'}</div>
     <div class="chat-meta"><div class="chat-track">${esc(title)}</div><div class="chat-sub">${esc(artist)}</div></div>`;
   S.chatHist=[];
-  const chatArea=document.getElementById('chat-area');
-  chatArea.innerHTML=`<div class="bbl a">🎵 <b>${esc(title)}</b>에 대해 뭐든 물어보세요!</div>`;
+  resetDifficulty();
   goTab('a');
   fetchLyrics(artist,title);
 }
@@ -1110,6 +1110,111 @@ function renderResult(type,text){
   }
 }
 
+// ── 파트별 난이도 ──
+// 곡을 새로 고르면 분석 결과를 지우고 시작 버튼만 보여 준다. 자동으로 돌리면
+// 탭만 열어도 무료 한도가 닳으므로 누를 때만 부른다.
+function resetDifficulty(){
+  const area=document.getElementById('chat-area');
+  if(!area) return;
+  S.cache.difficulty='';
+  area.innerHTML=S.track
+    ? `<div class="bbl a">🎚️ <b>${esc(S.track.title)}</b>의 파트별 난이도를 따져봅니다.<br>
+         보컬은 음역·호흡·고음 지속을, 악기는 편성에 맞춰 짚어드립니다.</div>
+       <button class="diff-go" onclick="doDifficulty()">난이도 분석하기</button>`
+    : '<div class="bbl a">검색 탭에서 곡을 먼저 선택해주세요 🎵</div>';
+}
+
+async function doDifficulty(){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const area=document.getElementById('chat-area');
+  // 가사가 있으면 구성(절·후렴·브릿지)을 짚을 수 있어 훨씬 구체적인 답이 나온다.
+  if(!S.track.lyrics && !S.track.lyricsSrc){
+    area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
+    await fetchLyrics(S.track.artist,S.track.title);
+  }
+  const facts=[
+    S.track.album&&`수록 앨범: ${S.track.album}`,
+    S.track.year&&`발표: ${S.track.year}년`,
+    S.track.durationMs&&`길이: ${fmtMs(S.track.durationMs)}`,
+    S.track.genre&&`분류: ${S.track.genre}`,
+  ].filter(Boolean).join(' · ');
+  const lyricsPart=S.track.lyrics?`\n\n【가사 전문】\n${S.track.lyrics.slice(0,6000)}\n`:'\n\n(가사를 찾지 못했습니다.)\n';
+
+  const prompt=`이 곡을 직접 연주하거나 불러보려는 사람에게, 파트별로 얼마나 어려운지 알려주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}${facts?`\n(${facts})`:''}${lyricsPart}
+
+【먼저 편성을 파악하세요】
+이 곡에 실제로 들어가는 파트가 무엇인지 먼저 판단하고, 그 파트만 다루세요.
+피아노 발라드에 드럼 항목을 만들거나, 밴드곡에 없는 관악기를 지어내지 마세요.
+편성이 확실하지 않으면 "편성은 확실하지 않지만 일반적으로 이런 구성입니다"라고
+밝히고 진행하세요.
+
+【이렇게 써주세요】
+
+## 한눈에
+전체적으로 어느 정도 난이도인지, 어떤 편성의 곡인지 한 문단으로.
+그리고 이 곡에서 가장 까다로운 파트가 무엇인지 짚어주세요.
+
+그다음 파트마다 "## 파트이름 ★★★☆☆" 형태로 소제목을 달고(별 다섯 개 중 채움),
+아래 내용을 문장으로 풀어 쓰세요.
+
+보컬이 있으면 반드시 다음을 다루세요:
+- 음역 폭: 최저음부터 최고음까지 얼마나 넓게 오가는지
+- 고음 구간: 높은 음이 어디에 나오고 얼마나 오래 머무는지
+- 호흡: 한 호흡에 밀어붙여야 하는 긴 프레이즈가 있는지
+- 발성 전환: 진성과 가성을 오가는 구간, 믹스보이스가 필요한 대목
+- 성량과 지구력: 계속 강하게 질러야 하는지, 곡 후반에 체력이 남는지
+- 리듬과 음정: 박자가 까다롭거나 음정이 잡기 어려운 부분
+
+악기 파트(기타·베이스·드럼·건반·현악·관악 등)는 그 악기에 맞게:
+- 어떤 주법과 테크닉이 필요한지
+- 속도와 리듬이 얼마나 빡빡한지
+- 코드나 운지가 까다로운 부분
+- 초보자가 걸려 넘어질 만한 지점
+
+각 파트 끝에는 "가장 어려운 구간"을 한 줄로 짚어주세요. 가사가 주어졌다면
+어느 대목인지 가사를 인용해 알려주면 좋습니다.
+
+## 연습한다면
+어디부터 손대는 게 좋을지, 쉽게 가려면 무엇을 바꾸면 되는지(키 조절, 템포 낮추기,
+간소화된 코드 등) 두세 줄.
+
+【지켜야 할 것】
+- "최고음은 C#5" 같은 정확한 음이름이나 BPM 숫자는 확실할 때만 쓰세요.
+  확실하지 않으면 "후렴이 상당히 높은 음역에 오래 머뭅니다"처럼 말로 풀어 쓰세요.
+  틀린 숫자는 부를 수 있는지 판단을 통째로 뒤집습니다.
+- 아는 게 적은 곡이면 가사 구조와 장르에서 읽어낼 수 있는 만큼만 쓰고,
+  모르는 부분은 모른다고 밝히세요.
+- 인사말 없이 "## 한눈에"부터 바로 시작하세요.
+
+한국어로 써주세요.`;
+
+  let lastPaint=0;
+  const paint=(text,force)=>{
+    const now=Date.now();
+    if(!force&&now-lastPaint<400) return;
+    lastPaint=now;
+    area.innerHTML=`<div class="bbl a">${mdToHtml(text)}</div>`;
+    area.scrollTop=area.scrollHeight;
+  };
+  area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
+  try{
+    let full;
+    try{
+      full=await callGeminiStream(prompt,t=>paint(t,false),[],null,4096);
+    }catch(e){
+      if(e.fatal) throw e;
+      full=await callGemini(prompt,null,[],null,4096);
+    }
+    paint(full,true);
+    S.cache.difficulty=full;
+  }catch(e){
+    area.innerHTML=`<div class="bbl a">오류: ${esc(e.message)}</div>
+      <button class="diff-go" onclick="doDifficulty()">다시 시도</button>`;
+  }
+}
+
 // ── CHAT ──
 async function sendChat(){
   if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
@@ -1123,7 +1228,10 @@ async function sendChat(){
   ld.innerHTML='<div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div>';
   area.appendChild(ld);area.scrollTop=area.scrollHeight;
   try{
-    const ctx=`현재 곡: ${S.track.title} — ${S.track.artist}\n${S.track.lyrics?'가사:\n'+S.track.lyrics.substring(0,3000):''}`;
+    // 난이도 분석을 이미 받았다면 함께 넘긴다. 사용자는 보통 그 내용을 이어서 묻는다.
+    const ctx=`현재 곡: ${S.track.title} — ${S.track.artist}\n`
+      +`${S.track.lyrics?'가사:\n'+S.track.lyrics.substring(0,3000)+'\n':''}`
+      +`${S.cache.difficulty?'\n앞서 이 곡에 대해 아래와 같이 파트별 난이도를 정리했습니다:\n'+S.cache.difficulty.substring(0,3000):''}`;
     const sysMsg=`당신은 음악을 잘 아는 조력자입니다. 지금 다음 곡에 대해 이야기하는 중입니다:\n${ctx}\n\n아는 것과 모르는 것을 분명히 구분하고, 확실하지 않으면 아는 척하지 말고 모른다고 말하세요. 한국어로 답변하세요.`;
     // 답이 오는 대로 말풍선을 채운다. 첫 글자가 도착하면 로딩 표시를 치운다.
     const bbl=document.createElement('div');bbl.className='bbl a';
