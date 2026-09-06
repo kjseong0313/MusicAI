@@ -133,6 +133,9 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .bbl{max-width:82%;padding:.7rem .9rem;border-radius:14px;font-size:.86rem;line-height:1.6;white-space:pre-wrap}
 .bbl.u{background:var(--accent);color:#000;align-self:flex-end;border-bottom-right-radius:4px;font-weight:500}
 .bbl.a{background:var(--bg3);color:#ddd;align-self:flex-start;border-bottom-left-radius:4px;border:1px solid rgba(255,255,255,.06)}
+.tool-row{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.3rem}
+.chip{background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:.4rem .75rem;color:var(--text);font-size:.76rem;font-family:'Noto Sans KR',sans-serif;cursor:pointer}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
 .diff-go{align-self:flex-start;background:var(--accent);color:#000;border:none;border-radius:12px;padding:.7rem 1.1rem;font-size:.88rem;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer;margin-top:.2rem}
 .chat-bar{display:flex;gap:.6rem;padding:.8rem;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
 .chat-bar input{flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.7rem .9rem;color:var(--text);font-size:.9rem;font-family:'Noto Sans KR',sans-serif;outline:none;transition:border .2s}
@@ -1118,10 +1121,151 @@ function resetDifficulty(){
   if(!area) return;
   S.cache.difficulty='';
   area.innerHTML=S.track
-    ? `<div class="bbl a">🎚️ <b>${esc(S.track.title)}</b>의 파트별 난이도를 따져봅니다.<br>
-         보컬은 음역·호흡·고음 지속을, 악기는 편성에 맞춰 짚어드립니다.</div>
-       <button class="diff-go" onclick="doDifficulty()">난이도 분석하기</button>`
+    ? `<div class="bbl a">🎵 <b>${esc(S.track.title)}</b> — ${esc(S.track.artist)}<br>
+         아래에서 골라보세요. 결과를 보고 이어서 질문해도 됩니다.</div>
+       <div class="tool-row">
+         <button class="diff-go" onclick="doDifficulty()">🎚️ 파트별 난이도</button>
+         <button class="diff-go" onclick="doIntro()">🎧 입문 가이드</button>
+         <button class="diff-go" onclick="doIdioms()">📖 표현 풀이</button>
+       </div>`
     : '<div class="bbl a">검색 탭에서 곡을 먼저 선택해주세요 🎵</div>';
+}
+
+// 분석 결과를 말풍선에 흘려 넣는다. 세 기능이 같은 자리를 쓰므로 하나로 묶었다.
+async function runTool(prompt, thinkBudget, cacheKey, extraHtml=''){
+  const area=document.getElementById('chat-area');
+  let lastPaint=0;
+  const paint=(text,force)=>{
+    const now=Date.now();
+    if(!force&&now-lastPaint<400) return;
+    lastPaint=now;
+    area.innerHTML=`<div class="bbl a">${mdToHtml(text)}</div>`+(force?extraHtml:'');
+    area.scrollTop=area.scrollHeight;
+  };
+  area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
+  try{
+    let full;
+    try{
+      full=await callGeminiStream(prompt,t=>paint(t,false),[],null,thinkBudget);
+    }catch(e){
+      if(e.fatal) throw e;
+      full=await callGemini(prompt,null,[],null,thinkBudget);
+    }
+    paint(full,true);
+    if(cacheKey) S.cache[cacheKey]=full;
+  }catch(e){
+    area.innerHTML=`<div class="bbl a">오류: ${esc(e.message)}</div>
+      <button class="diff-go" onclick="resetDifficulty()">돌아가기</button>`;
+  }
+}
+
+// ── 입문 가이드 ──
+// 추천 곡 목록은 Deezer에서 실제로 받아온다. 모델 기억에 맡기면 존재하지 않는 곡을
+// 지어내기 때문에, 목록은 데이터로 주고 모델은 순서와 이유만 붙이게 한다.
+async function doIntro(){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const area=document.getElementById('chat-area');
+  area.innerHTML='<div class="bbl a">대표곡 목록을 받아오는 중...</div>';
+  let top=null;
+  try{
+    const res=await fetch(`${WORKER_URL}/artist-top?name=${encodeURIComponent(S.track.artist)}`,{signal:AbortSignal.timeout(20000)});
+    if(res.ok) top=await res.json();
+  }catch{ /* 아래에서 안내한다 */ }
+  if(!top?.tracks?.length){
+    area.innerHTML=`<div class="bbl a">이 가수의 대표곡 목록을 찾지 못했습니다. 없는 곡을 지어내지 않으려면 목록이 있어야 해서 여기서 멈춥니다.</div>
+      <button class="diff-go" onclick="resetDifficulty()">돌아가기</button>`;
+    return;
+  }
+  const list=top.tracks.slice(0,20).map((t,i)=>`${i+1}. ${t.title}${t.album?` (${t.album})`:''}`).join('\n');
+  // 목록의 곡을 눌러 바로 검색할 수 있게 한다.
+  const chips=`<div class="tool-row">`+top.tracks.slice(0,8)
+    .map(t=>`<button class="chip" onclick="searchFor(${JSON.stringify(t.title).replace(/"/g,'&quot;')})">${esc(t.title)}</button>`).join('')
+    +`</div>`;
+
+  const prompt=`${S.track.artist}를 처음 듣는 사람을 위한 입문 가이드를 써주세요.
+지금 이 사람은 "${S.track.title}"을 듣고 이 가수에게 관심이 생긴 참입니다.
+
+【이 가수의 실제 인기곡 (재생 순)】
+${list}
+
+【반드시 지킬 것】
+- 위 목록에 있는 곡만 다루세요. 목록에 없는 곡은 제목조차 언급하지 마세요.
+  기억나는 다른 곡이 있어도 쓰면 안 됩니다.
+- 곡 제목은 위에 적힌 그대로 옮기세요.
+
+【이렇게 써주세요】
+
+## 어떤 가수인가
+음악적으로 어떤 특징이 있는지, 무엇으로 알려졌는지 한 문단.
+확실하지 않으면 목록에 보이는 곡들에서 읽어낼 수 있는 만큼만 쓰세요.
+
+## 이 순서로 들어보세요
+목록에서 4~5곡을 골라 들을 순서를 정하고, 각 곡마다 왜 이 순서인지,
+어떤 매력을 기대하면 되는지 두세 줄씩. "${S.track.title}"을 좋아했다면
+어느 곡으로 넘어가는 게 자연스러운지도 짚어주세요.
+
+## 더 깊이 가려면
+위 목록 중 대중적이지는 않지만 이 가수를 이해하는 데 좋은 곡이 있다면 한두 곡.
+없으면 이 항목은 빼세요.
+
+인사말 없이 "## 어떤 가수인가"부터 바로 시작하고, 한국어로 써주세요.`;
+
+  await runTool(prompt,2048,'intro',chips);
+}
+
+// 검색 탭으로 넘어가 그 곡을 바로 찾아 준다.
+function searchFor(title){
+  document.getElementById('sq').value=`${title} ${S.track?.artist||''}`.trim();
+  setType('song');
+  goTab('s');
+  doSearch();
+}
+
+// ── 표현 풀이 ──
+async function doIdioms(){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const area=document.getElementById('chat-area');
+  if(!S.track.lyrics && !S.track.lyricsSrc){
+    area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
+    await fetchLyrics(S.track.artist,S.track.title);
+  }
+  if(!S.track.lyrics){
+    area.innerHTML=`<div class="bbl a">가사를 찾지 못해 표현을 뽑을 수 없습니다. 분석 탭에서 가사를 직접 붙여 넣으면 여기서도 쓸 수 있습니다.</div>
+      <button class="diff-go" onclick="resetDifficulty()">돌아가기</button>`;
+    return;
+  }
+  const prompt=`아래 가사에서 그냥 읽어서는 뜻이 잘 안 잡히는 표현을 뽑아 풀어주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【가사 전문】
+${S.track.lyrics.slice(0,6000)}
+
+【무엇을 뽑을지】
+- 관용구와 숙어 (사전적 의미와 실제 쓰임이 다른 것)
+- 슬랭과 구어체 축약
+- 비유와 상징, 말장난
+- 문화적 배경을 알아야 이해되는 대목 (지명, 인물, 관습, 다른 작품 인용)
+- 한국어 가사라면 시적 표현, 도치, 중의적으로 읽히는 구절
+
+【이렇게 써주세요】
+표현마다 이렇게 세 줄로:
+
+## "가사 원문 그대로"
+**직역**: 글자 그대로의 뜻
+**실제 의미**: 이 가사에서 무엇을 말하는지, 왜 이렇게 표현했는지
+
+6~10개 정도 뽑되, 뽑을 게 적으면 억지로 늘리지 말고 있는 만큼만 쓰세요.
+평범해서 설명이 필요 없는 구절은 넣지 마세요.
+
+【지켜야 할 것】
+- 반드시 위 가사에 실제로 있는 구절만 인용하세요. 기억으로 바꿔 쓰지 마세요.
+- 확실하지 않은 유래나 뒷이야기는 단정하지 말고 "~로 보입니다"라고 쓰세요.
+- 인사말 없이 첫 표현부터 바로 시작하세요.
+
+한국어로 써주세요.`;
+
+  await runTool(prompt,2048,'idioms');
 }
 
 async function doDifficulty(){
@@ -1194,29 +1338,7 @@ async function doDifficulty(){
 
 한국어로 써주세요.`;
 
-  let lastPaint=0;
-  const paint=(text,force)=>{
-    const now=Date.now();
-    if(!force&&now-lastPaint<400) return;
-    lastPaint=now;
-    area.innerHTML=`<div class="bbl a">${mdToHtml(text)}</div>`;
-    area.scrollTop=area.scrollHeight;
-  };
-  area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
-  try{
-    let full;
-    try{
-      full=await callGeminiStream(prompt,t=>paint(t,false),[],null,4096);
-    }catch(e){
-      if(e.fatal) throw e;
-      full=await callGemini(prompt,null,[],null,4096);
-    }
-    paint(full,true);
-    S.cache.difficulty=full;
-  }catch(e){
-    area.innerHTML=`<div class="bbl a">오류: ${esc(e.message)}</div>
-      <button class="diff-go" onclick="doDifficulty()">다시 시도</button>`;
-  }
+  await runTool(prompt,4096,'difficulty');
 }
 
 // ── CHAT ──
@@ -1235,7 +1357,9 @@ async function sendChat(){
     // 난이도 분석을 이미 받았다면 함께 넘긴다. 사용자는 보통 그 내용을 이어서 묻는다.
     const ctx=`현재 곡: ${S.track.title} — ${S.track.artist}\n`
       +`${S.track.lyrics?'가사:\n'+S.track.lyrics.substring(0,3000)+'\n':''}`
-      +`${S.cache.difficulty?'\n앞서 이 곡에 대해 아래와 같이 파트별 난이도를 정리했습니다:\n'+S.cache.difficulty.substring(0,3000):''}`;
+      +`${S.cache.difficulty?'\n앞서 파트별 난이도를 이렇게 정리했습니다:\n'+S.cache.difficulty.substring(0,2500):''}`
+      +`${S.cache.intro?'\n앞서 이 가수 입문 가이드를 이렇게 썼습니다:\n'+S.cache.intro.substring(0,1500):''}`
+      +`${S.cache.idioms?'\n앞서 가사 표현을 이렇게 풀었습니다:\n'+S.cache.idioms.substring(0,1500):''}`;
     const sysMsg=`당신은 음악을 잘 아는 조력자입니다. 지금 다음 곡에 대해 이야기하는 중입니다:\n${ctx}\n\n아는 것과 모르는 것을 분명히 구분하고, 확실하지 않으면 아는 척하지 말고 모른다고 말하세요. 한국어로 답변하세요.`;
     // 답이 오는 대로 말풍선을 채운다. 첫 글자가 도착하면 로딩 표시를 치운다.
     const bbl=document.createElement('div');bbl.className='bbl a';

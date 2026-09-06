@@ -204,6 +204,37 @@ async function deezerTopTracks(ids) {
   return tops;
 }
 
+// 가수의 대표곡을 실제 데이터로 가져온다. 입문 가이드를 모델 기억에만 맡기면 존재하지
+// 않는 곡이 섞이므로, 목록은 Deezer에서 받고 모델에게는 순서와 이유만 붙이게 한다.
+async function deezerArtistTopTracks(name) {
+  const fame = await deezerArtistFame([name]);
+  const info = fame.get(normalize(name));
+  if (!info) return null;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const nonce = Math.random().toString(36).slice(2, 8);
+      const res = await fetch(`https://api.deezer.com/artist/${info.id}/top?limit=30&_n=${nonce}`, DEEZER_FETCH);
+      if (res.ok) {
+        const data = (await res.json()).data || [];
+        if (data.length) {
+          return {
+            artist: name,
+            fans: info.fans,
+            tracks: data.map(t => ({
+              title: t.title || '',
+              album: t.album?.title || '',
+              rank: t.rank || 0,
+              artworkUrl60: t.album?.cover_small || '',
+            })),
+          };
+        }
+      }
+    } catch { /* 아래에서 다시 시도한다 */ }
+    if (i < 2) await new Promise(r => setTimeout(r, 250));
+  }
+  return null;
+}
+
 async function musicBrainzSearch(q, limit) {
   const { json, want } = await mbSearch('recording', q, limit);
   const recs = json.recordings || [];
@@ -789,6 +820,37 @@ export default {
         status: 502,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
+    }
+
+    // ── 가수 대표곡 (GET) — 입문 가이드가 실존하는 곡만 다루게 하는 근거 ──
+    if (url.pathname === '/artist-top') {
+      const name = (url.searchParams.get('name') || '').trim();
+      if (!name) {
+        return new Response(JSON.stringify({ error: '가수 이름이 없습니다' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      const cacheKey = new Request(url.toString(), request);
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
+
+      const data = await deezerArtistTopTracks(name);
+      if (!data) {
+        return new Response(JSON.stringify({ error: 'Deezer에서 이 가수를 찾지 못했습니다' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      const response = new Response(JSON.stringify(data), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=21600'
+        }
+      });
+      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      return response;
     }
 
     // ── iTunes 검색 프록시 (GET) ──
