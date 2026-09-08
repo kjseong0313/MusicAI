@@ -152,7 +152,7 @@ const mbArtistOf = it => it['artist-credit']?.[0]?.artist?.name || it['artist-cr
 // Deezer의 가수 검색은 첫 결과가 동명이인일 때가 많아, 이름이 정확히 같은 것 중
 // 가장 팬이 많은 쪽을 고른다("Ed Sheeran"의 첫 매치는 팬 2천의 다른 계정이다).
 // 가수 조회도 Deezer의 빈 응답 버그를 맞으므로 매번 다른 URL로 두 번까지 시도한다.
-// Workers는 요청당 서브요청 50개가 상한이라 10명 × 2회 = 20건으로 묶어 둔다.
+// Workers는 요청당 서브요청 50개가 상한이라 8명 × 2회 = 16건으로 묶어 둔다.
 async function deezerArtistFame(names) {
   const fame = new Map();
   await Promise.all(names.map(async name => {
@@ -266,16 +266,17 @@ async function musicBrainzSearch(q, limit) {
   // 팬 수 조회는 비싸므로(가수당 최대 2회) 먼저 관련도와 건수로 한 번 줄 세운 뒤,
   // 실제로 화면에 나갈 상위 후보의 가수만 조회한다.
   const prelim = rankResults(recs, q, { title: it => it.title || '', artist: mbArtistOf, popularity: byHits });
-  const topNames = [...new Set(prelim.slice(0, 30).map(mbArtistOf).filter(Boolean))].slice(0, 10);
+  const topNames = [...new Set(prelim.slice(0, 30).map(mbArtistOf).filter(Boolean))].slice(0, 8);
   // 한글 검색어에는 Deezer 유명세를 쓰지 않는다. Deezer의 한국 데이터가 사실상 비어
   // 있어서(버스커 버스커 팬 2명, 임재범 21명, 아이유는 그 이름으로 아예 안 잡힌다)
   // 이걸로 순위를 매기거나 걸러내면 원곡이 무명 커버에게 밀리거나 통째로 잘려 나간다.
   // 그런 검색에서는 MusicBrainz에 몇 건이나 등록됐는지(byHits)가 훨씬 믿을 만하다.
   const korean = HANGUL_RE.test(q);
   const fame = korean ? new Map() : await deezerArtistFame(topNames);
-  // 서브요청 예산(요청당 50개) 안에 들도록 6명까지만 대표곡을 확인한다.
+  // 서브요청 예산 안에 들도록 4명까지만 대표곡을 확인한다. 이 경로의 최악은
+  // iTunes 1 + Deezer 검색 10 + MusicBrainz 2페이지×3 + 팬 수 8×2 + 대표곡 4×3 = 45회다.
   const tops = korean ? new Map()
-    : await deezerTopTracks([...fame.values()].map(v => v.id).filter(Boolean).slice(0, 6));
+    : await deezerTopTracks([...fame.values()].map(v => v.id).filter(Boolean).slice(0, 4));
 
   const ranked = rankResults(recs, q, {
     title: it => it.title || '',
