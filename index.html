@@ -951,9 +951,10 @@ async function doSection(type){
 비슷한 결의 곡이나 아티스트를 두세 개, 왜 비슷한지 한 줄씩 곁들여서.
 
 【지켜야 할 것】
-- 조성은 "사운드"에서 반드시 구체적인 값 하나를 적으세요. 아는 게 없더라도
-  빼거나 "모르겠습니다"로 끝내지 말고, 장르·분위기·창법·비슷한 곡에서 미루어
-  가장 그럴듯한 조성 하나를 반드시 골라 던지세요.
+- 조성은 "사운드"에서 반드시 구체적인 값 하나를 적으세요. 모르겠으면 먼저
+  웹에서 찾아보세요 — 이 곡의 원곡 키와 악보 정보는 실제로 검색에 나옵니다.
+  검색해도 안 나오면 빼거나 "모르겠습니다"로 끝내지 말고, 장르·분위기·창법·
+  비슷한 곡에서 미루어 가장 그럴듯한 조성 하나를 반드시 골라 던지세요.
   다만 확신의 정도는 항상 구분해 표시하세요 —
   확실하면 "라단조(D minor)"처럼 그대로 쓰고,
   애매하면 "추정 라단조(D minor) — 단조 특유의 어두운 색채와 창법으로 미루어 본
@@ -969,7 +970,7 @@ async function doSection(type){
 - 인사말이나 "설명해 드리겠습니다" 같은 머리말 없이 "## 한눈에"부터 바로 시작하세요.
 
 한국어로 써주세요.`;
-    try{const r=await runSection('desc',prompt,4096);S.cache.desc=r;}
+    try{const r=await runSection('desc',prompt,4096,true);S.cache.desc=r;}
     catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
     return;
   }
@@ -1055,7 +1056,7 @@ ${S.cache.trans||''}`;
 
 // 분석 결과를 스트리밍으로 채운다. 글자가 오는 대로 그리되 너무 잦은 렌더는 막는다.
 // 스트리밍이 막히면 일반 호출로 넘어가므로 결과가 없어지는 일은 없다.
-async function runSection(type, prompt, thinkBudget){
+async function runSection(type, prompt, thinkBudget, search=false){
   let lastPaint=0;
   const paint=(text,force)=>{
     const now=Date.now();
@@ -1063,15 +1064,24 @@ async function runSection(type, prompt, thinkBudget){
     lastPaint=now;
     renderResult(type,text);
   };
+  const run=async(useSearch)=>{
+    try{
+      const full=await callGeminiStream(prompt, t=>paint(t,false), [], null, thinkBudget, useSearch);
+      paint(full,true);
+      return full;
+    }catch(e){
+      if(e.fatal) throw e;
+      const full=await callGemini(prompt,'ana-content',[],null,thinkBudget,6,useSearch);
+      renderResult(type,full);
+      return full;
+    }
+  };
   try{
-    const full=await callGeminiStream(prompt, t=>paint(t,false), [], null, thinkBudget);
-    paint(full,true);
-    return full;
+    return await run(search);
   }catch(e){
-    if(e.fatal) throw e;
-    const full=await callGemini(prompt,'ana-content',[],null,thinkBudget);
-    renderResult(type,full);
-    return full;
+    // 검색을 지원하지 않는 모델은 400을 낸다. 그때만 검색 없이 한 번 더 간다.
+    if(!search||e.code!==400) throw e;
+    return await run(false);
   }
 }
 
@@ -1156,7 +1166,7 @@ function resetDifficulty(){
 }
 
 // 분석 결과를 말풍선에 흘려 넣는다. 세 기능이 같은 자리를 쓰므로 하나로 묶었다.
-async function runTool(prompt, thinkBudget, cacheKey, extraHtml=''){
+async function runTool(prompt, thinkBudget, cacheKey, extraHtml='', search=false){
   const area=document.getElementById('chat-area');
   let lastPaint=0;
   const paint=(text,force)=>{
@@ -1171,11 +1181,20 @@ async function runTool(prompt, thinkBudget, cacheKey, extraHtml=''){
   area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
   try{
     let full;
+    // 검색을 지원하지 않는 모델은 400을 낸다. 그때만 검색 없이 한 번 더 간다.
+    const run=async(useSearch)=>{
+      try{
+        return await callGeminiStream(prompt,t=>paint(t,false),[],null,thinkBudget,useSearch);
+      }catch(e){
+        if(e.fatal) throw e;
+        return await callGemini(prompt,null,[],null,thinkBudget,6,useSearch);
+      }
+    };
     try{
-      full=await callGeminiStream(prompt,t=>paint(t,false),[],null,thinkBudget);
+      full=await run(search);
     }catch(e){
-      if(e.fatal) throw e;
-      full=await callGemini(prompt,null,[],null,thinkBudget);
+      if(!search||e.code!==400) throw e;
+      full=await run(false);
     }
     paint(full,true);
     if(cacheKey) S.cache[cacheKey]=full;
@@ -1331,6 +1350,23 @@ async function doDifficulty(){
 그다음 파트마다 "## 파트이름 ★★★☆☆" 형태로 소제목을 달고(별 다섯 개 중 채움),
 아래 내용을 문장으로 풀어 쓰세요.
 
+【별점은 이 절대 기준으로 매기세요】
+기준은 딱 하나입니다 — "취미로 하는 보통 사람이 원곡 키 그대로, 곡 전체를
+끝까지 해낼 수 있는가". 장르 안에서의 상대평가나 "이 정도면 무난하다" 식의
+인상 평가를 하지 마세요.
+- ★☆☆☆☆ 거의 누구나 된다. 음역 한 옥타브 안, 특별한 기교 없음.
+- ★★☆☆☆ 보통 사람의 음역·기량 안에서 조금만 연습하면 된다.
+- ★★★☆☆ 연습이 꽤 필요하다. 고음이 반복되거나 리듬이 까다롭다.
+- ★★★★☆ 훈련받은 사람 영역. 음역이 넓고 발성 전환·지구력이 요구된다.
+- ★★★★★ 대부분의 사람은 원곡 키로 완창하지 못한다. 극단적인 고음이나
+  지속되는 팔세토, 두 옥타브를 넘나드는 음역, 특수 창법이 곡 내내 이어진다.
+  프로 보컬이 아니면 사실상 불가능한 곡이 여기 해당합니다.
+
+누가 들어도 어려운 곡을 점잖게 4개로 깎지 마세요. 위 정의에 맞으면 5개를
+그대로 주세요. 반대로 쉬운 곡에 인심 쓰듯 별을 더 얹지도 마세요.
+그리고 별점을 준 근거를 한 줄로 밝히세요(예: "후렴 내내 A4~C5 팔세토가
+이어져 원곡 키로는 대부분 못 따라간다").
+
 보컬이 있으면 반드시 다음을 다루세요:
 - 음역: 최저음과 최고음을 반드시 음이름으로 적으세요(예: "G3 ~ C#5, 원곡 키 기준").
   그리고 그 폭이 얼마나 넓은지 한 줄로 덧붙이세요.
@@ -1354,19 +1390,23 @@ async function doDifficulty(){
 간소화된 코드 등) 두세 줄.
 
 【지켜야 할 것】
-- 보컬 음역은 반드시 음이름 숫자로 적으세요. 부를 수 있는지 가늠하려면 숫자가
-  있어야 하므로, "높은 편입니다" 같은 말로 얼버무리지 마세요.
-  알려진 값이 확실하면 그대로 쓰고, 확실하지 않으면 빼지 말고 대신 근거와 함께
-  추정치를 쓰세요 — 예: "추정 A3 ~ D5 (가창 스타일과 장르로 미루어 본 값)".
-  확실한 값인지 추정인지는 항상 구분해서 표시하세요.
-- BPM은 확실할 때만 쓰세요.
-- 아는 게 적은 곡이면 가사 구조와 장르에서 읽어낼 수 있는 만큼만 쓰고,
-  모르는 부분은 모른다고 밝히세요.
+- 보컬 음역(최저음과 최고음)은 무슨 일이 있어도 음이름 숫자로 적으세요.
+  모르겠으면 먼저 웹에서 찾아보세요 — 이 곡의 vocal range, 최고음, 원곡 키,
+  악보 정보가 실제로 검색에 나옵니다. 찾은 값이 있으면 그 값을 쓰세요.
+  검색해도 안 나오면 빼지 말고, 가창 스타일·장르·비슷한 곡에서 미루어
+  반드시 추정치 하나를 적으세요 — 예: "추정 A3 ~ D5 (가창 스타일과 장르로
+  미루어 본 값)". "높은 편입니다" 같은 말로 얼버무리는 것만은 안 됩니다.
+  확인된 값인지 추정인지는 항상 구분해 표시하세요.
+- 조성(원곡 키)도 같은 방식으로 반드시 하나 적으세요. 확실하면 그대로,
+  아니면 "추정"이라고 밝히고 적으면 됩니다.
+- BPM도 찾을 수 있으면 적고, 못 찾았으면 생략하세요.
+- 아는 게 적은 곡이라도 음역·조성만은 위 방식대로 값을 내고, 나머지는
+  가사 구조와 장르에서 읽어낼 수 있는 만큼만 쓰면서 모르는 부분은 밝히세요.
 - 인사말 없이 "## 한눈에"부터 바로 시작하세요.
 
 한국어로 써주세요.`;
 
-  await runTool(prompt,4096,'difficulty');
+  await runTool(prompt,4096,'difficulty','',true);
 }
 
 // ── CHAT ──
@@ -1459,26 +1499,27 @@ function genConfig(thinkBudget){
   return cfg;
 }
 
-function reqBody(prompt, history, sysText, thinkBudget){
-  return JSON.stringify({
-    model:S.model,
-    payload:{
-      contents:[...history,{role:'user',parts:[{text:prompt}]}],
-      systemInstruction:{parts:[{text:sysText}]},
-      generationConfig:genConfig(thinkBudget)
-    }
-  });
+function reqBody(prompt, history, sysText, thinkBudget, search){
+  const payload={
+    contents:[...history,{role:'user',parts:[{text:prompt}]}],
+    systemInstruction:{parts:[{text:sysText}]},
+    generationConfig:genConfig(thinkBudget)
+  };
+  // 최고음이나 조성처럼 기억만으로는 안 나오는 값은 검색해서 찾아오게 한다.
+  // 지원하지 않는 모델은 400을 내므로, 부르는 쪽에서 검색 없이 한 번 더 시도한다.
+  if(search) payload.tools=[{google_search:{}}];
+  return JSON.stringify({model:S.model, payload});
 }
 
 const DEFAULT_SYS='당신은 음악을 잘 아는 조력자입니다. 곡 소개, 가사 번역과 해석을 돕습니다. 아는 것과 모르는 것을 분명히 구분하고, 확실하지 않으면 아는 척하지 말고 모른다고 말하세요. 한국어로 답변하세요.';
 
 // 글자가 오는 대로 onChunk(지금까지 누적된 전체 텍스트)를 부른다. 실패하면 예외를
 // 던지고, 호출한 쪽에서 일반 호출로 넘어간다.
-async function callGeminiStream(prompt, onChunk, history=[], sysOverride=null, thinkBudget=null){
+async function callGeminiStream(prompt, onChunk, history=[], sysOverride=null, thinkBudget=null, search=false){
   await paceCall();
   const res=await fetch(`${WORKER_URL}/stream`,{
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:reqBody(prompt, history, sysOverride||DEFAULT_SYS, thinkBudget)
+    body:reqBody(prompt, history, sysOverride||DEFAULT_SYS, thinkBudget, search)
   });
   if(!res.ok || !res.body){
     const d=await res.json().catch(()=>null);
@@ -1510,7 +1551,7 @@ async function callGeminiStream(prompt, onChunk, history=[], sysOverride=null, t
   return text;
 }
 
-async function callGemini(prompt, statusElId=null, history=[], sysOverride=null, thinkBudget=null, retries=6){
+async function callGemini(prompt, statusElId=null, history=[], sysOverride=null, thinkBudget=null, retries=6, search=false){
   const sysText = sysOverride || DEFAULT_SYS;
 
   for(let i=0; i<retries; i++){
@@ -1519,7 +1560,7 @@ async function callGemini(prompt, statusElId=null, history=[], sysOverride=null,
       const res = await fetch(WORKER_URL, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: reqBody(prompt, history, sysText, thinkBudget)
+        body: reqBody(prompt, history, sysText, thinkBudget, search)
       });
       const d = await res.json();
       if(d.error?.code === 429){
@@ -1538,6 +1579,7 @@ async function callGemini(prompt, statusElId=null, history=[], sysOverride=null,
       }
       if(d.error){
         const err = new Error(d.error.message);
+        err.code = d.error.code;
         // 잘못된 요청이나 없는 모델은 다시 걸어도 결과가 같다. 6번씩 되풀이할 이유가 없다.
         err.fatal = [400, 403, 404].includes(d.error.code);
         throw err;
