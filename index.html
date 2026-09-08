@@ -305,7 +305,7 @@ async function itunesSearch(q, stype){
 // 아래 세 함수는 실패해도 예외를 던지지 않고 null을 돌려준다(병렬 실행 중 미처리 거부 방지).
 async function searchViaWorker(q, stype, dbg){
   try{
-    const url=`${WORKER_URL}/itunes?q=${encodeURIComponent(q)}&entity=${stype}&country=KR&limit=50`;
+    const url=`${WORKER_URL}/itunes?q=${encodeURIComponent(q)}&entity=${stype}&country=US&limit=50`;
     const res=await fetch(url, {signal:AbortSignal.timeout(6000)});
     if(!res.ok){
       const body=await res.text().catch(()=>'');
@@ -321,7 +321,8 @@ async function searchViaWorker(q, stype, dbg){
 
 async function searchItunesDirect(q, stype, dbg){
   try{
-    const url=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${stype}&limit=50&country=KR`;
+    // 한국 스토어는 어떤 검색어에도 0건을 준다(직접 확인). 미국 스토어가 한국 곡까지 준다.
+    const url=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=${stype}&limit=50&country=US`;
     const res=await fetch(url, {signal:AbortSignal.timeout(5000)});
     if(!res.ok){dbg.push(`직접: HTTP ${res.status}`);return null;}
     const data=await res.json();

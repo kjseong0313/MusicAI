@@ -668,6 +668,27 @@ async function deezerFansById(ids) {
   return fans;
 }
 
+// Deezer의 기본 검색은 지역에 따라 유명한 원곡을 목록에서 통째로 빼먹는다. "hey now"가
+// 그랬다 — 워커가 나가는 지역에서는 오아시스가 83건 안에 아예 없었다(한국에서 직접
+// 부르면 22번째에 있다). 제목을 지정한 질의는 정렬이 엉망인 대신 그 곡을 갖고 있어서
+// (오아시스 정규 버전 rank 333080), 후보 풀을 넓히는 용도로만 한 번 더 부른다.
+// 정렬은 어차피 우리가 다시 하므로 순서가 나쁜 건 문제가 되지 않는다.
+async function deezerTitleSearch(q, n) {
+  try {
+    const term = `track:"${q.replace(/"/g, ' ').trim()}"`;
+    const nonce = Math.random().toString(36).slice(2, 10);
+    const res = await fetch(
+      `https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=${n}&order=RANKING&_n=${nonce}`,
+      DEEZER_FETCH
+    );
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j.data) ? j.data : [];
+  } catch {
+    return [];   // 보조 질의라 실패해도 기본 검색 결과로 그냥 진행한다
+  }
+}
+
 async function deezerSearch(q, entity, limit, debug) {
   const path = entity === 'album' ? 'search/album' : entity === 'musicArtist' ? 'search/artist' : 'search';
   const want = Number(limit) || 50;
@@ -710,6 +731,16 @@ async function deezerSearch(q, entity, limit, debug) {
       else {
         const items = json.data || [];
         if (items.length || !json.total) {
+          // 한글 검색어에는 붙이지 않는다. Deezer의 한국 카탈로그는 어차피 비어 있어
+          // 서브요청만 쓰고 얻는 게 없다.
+          let pool = items;
+          if (entity === 'song' && items.length && !HANGUL_RE.test(q)) {
+            const extra = await deezerTitleSearch(q, n);
+            if (extra.length) {
+              const seen = new Set(items.map(it => it.id));
+              pool = items.concat(extra.filter(it => it.id && !seen.has(it.id)));
+            }
+          }
           const titleOf = it => it.title || it.name || '';
           const artistOf = it => it.artist?.name || '';
           const albumOf = it => it.album?.title || '';
@@ -719,8 +750,12 @@ async function deezerSearch(q, entity, limit, debug) {
             : Math.min((it.rank || 0) / 800000, 1);
 
           // 1차 정렬은 관련도와 재생수로만 한다. 팬 수를 조회할 후보를 추리는 용도다.
-          const head = rankResults(items, q, { title: titleOf, artist: artistOf, popularity: trackPop, album: albumOf })
-            .slice(0, Math.min(want, 25));
+          // 25개로 자르면 유명한 가수의 앨범 수록곡이 통째로 잘려 나간다. Deezer의 rank는
+          // 지역을 타서(오아시스 "Hey Now"가 한국에서는 33만, 워커 지역에서는 7만이다)
+          // 재생수만으로 매긴 이 단계의 순위를 믿고 좁게 자를 수가 없다. 서브요청은 더
+          // 들지 않으므로(팬 수 조회는 아래에서 12명으로 묶인다) 넉넉히 남긴다.
+          const head = rankResults(pool, q, { title: titleOf, artist: artistOf, popularity: trackPop, album: albumOf })
+            .slice(0, Math.min(want, 50));
           const mapper = entity === 'album' ? mapDeezerAlbum : entity === 'musicArtist' ? mapDeezerArtist : mapDeezerTrack;
           // rank 100000은 Deezer가 무명 업로드에 주는 최저값이다. 전부 그 값이면 이 지역
           // 카탈로그에 원곡이 없다는 뜻이라(한국 곡에서 흔하다) MusicBrainz 쪽이 낫다.
@@ -888,7 +923,10 @@ export default {
     if (url.pathname === '/itunes') {
       const q = (url.searchParams.get('q') || '').trim();
       const entity = url.searchParams.get('entity') || 'song';
-      const country = url.searchParams.get('country') || 'KR';
+      // 한국 스토어(country=KR)는 어떤 검색어에도 HTTP 200에 resultCount 0을 준다.
+      // "billie jean"도 "벚꽃엔딩"도 0건이다(직접 확인). 미국 스토어는 한국 곡까지
+      // 정상적으로 준다("벚꽃엔딩" → Busker Busker). 기본값은 US여야 한다.
+      const country = url.searchParams.get('country') || 'US';
       const limit = url.searchParams.get('limit') || '50';
 
       if (!q) {
