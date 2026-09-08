@@ -693,12 +693,19 @@ async function deezerSearch(q, entity, limit, debug) {
   for (let i = 0; i < ATTEMPTS; i++) {
     const shape = shapes[i % shapes.length];
     const nonce = Math.random().toString(36).slice(2, 10);
-    const res = await fetch(`https://api.deezer.com/${shape}&_n=${nonce}`, DEEZER_FETCH);
-    const text = await res.text();
-    if (debug) throw new Error(`RAW [${shape}] status=${res.status}: ${text.slice(0, 400)}`);
-    if (!res.ok) { lastRaw = `HTTP ${res.status}: ${text.slice(0, 150)}`; }
-    else {
-      const json = JSON.parse(text);
+    try {
+      const res = await fetch(`https://api.deezer.com/${shape}&_n=${nonce}`, DEEZER_FETCH);
+      const text = await res.text();
+      if (debug) throw new Error(`RAW [${shape}] status=${res.status}: ${text.slice(0, 400)}`);
+      if (!res.ok) { lastRaw = `HTTP ${res.status}: ${text.slice(0, 150)}`; }
+      else {
+        let json;
+        try { json = JSON.parse(text); }
+        catch {
+          lastRaw = `non-JSON: ${text.slice(0, 150)}`;
+          if (i < ATTEMPTS - 1) await new Promise(r => setTimeout(r, Math.min(150 + i * 180, 900)));
+          continue;
+        }
       if (json.error) { lastRaw = `API error: ${JSON.stringify(json.error).slice(0, 150)}`; }
       else {
         const items = json.data || [];
@@ -756,6 +763,10 @@ async function deezerSearch(q, entity, limit, debug) {
         }
         lastRaw = `empty data despite total=${json.total}`;
       }
+    }
+    } catch (e) {
+      if (debug) throw e;
+      lastRaw = e.message;
     }
     // 빈 응답은 시간대를 타서, 한 번 나쁜 구간에 들어가면 몇 초씩 이어진다. 재시도를
     // 촘촘히 몰아치면 그 구간을 통째로 맞고 전부 실패하므로 간격을 점점 넓힌다.
@@ -847,7 +858,15 @@ export default {
       const cached = await cache.match(cacheKey);
       if (cached) return cached;
 
-      const data = await deezerArtistTopTracks(name);
+      let data;
+      try {
+        data = await deezerArtistTopTracks(name);
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
       if (!data) {
         return new Response(JSON.stringify({ error: 'Deezer에서 이 가수를 찾지 못했습니다' }), {
           status: 404,
@@ -958,6 +977,16 @@ export default {
       '/mb-album-tracks': () => mbAlbumTracks(url.searchParams.get('id')),
     };
     if (browseRoutes[url.pathname]) {
+      const id = url.searchParams.get('id') || '';
+      const deezerRoute = url.pathname.startsWith('/deezer-');
+      const validId = deezerRoute ? /^\d+$/.test(id)
+        : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      if (!validId) {
+        return new Response(JSON.stringify({ error: 'Invalid id' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
       const cacheKey = new Request(url.toString(), request);
       const cached = await cache.match(cacheKey);
       if (cached) return cached;
