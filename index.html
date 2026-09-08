@@ -757,11 +757,12 @@ function loadTrack(title,artist,artUrl,meta={}){
   document.getElementById('btn-trans').querySelector('.ana-btn-desc').textContent='가사 먼저 필요';
   document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='번역 먼저 필요';
   document.getElementById('ana-content').innerHTML='<div class="empty"><div class="ico">👆</div>위 버튼을 눌러 분석을 시작하세요</div>';
-  // 대화탭 업데이트
-  document.getElementById('chat-track-name').textContent=`${title} — ${artist}`;
+  // 대화탭 업데이트. 이 자리를 통째로 다시 그리므로 처음 HTML에 있던 id를 그대로
+  // 다시 달아 준다. 빠뜨리면 두 번째 곡부터 여기서 예외가 나고, 그 아래 초기화가
+  // 통째로 건너뛰어져 대화탭이 첫 곡에 붙박이가 된다.
   document.getElementById('chat-now').innerHTML=`
-    <div class="chat-cover">${artUrl?`<img src="${artUrl}">`:'🎵'}</div>
-    <div class="chat-meta"><div class="chat-track">${esc(title)}</div><div class="chat-sub">${esc(artist)}</div></div>`;
+    <div class="chat-cover">${artUrl?`<img src="${esc(artUrl)}">`:'🎵'}</div>
+    <div class="chat-meta"><div class="chat-track" id="chat-track-name">${esc(title)}</div><div class="chat-sub">${esc(artist)}</div></div>`;
   S.chatHist=[];
   resetDifficulty();
   goTab('a');
