@@ -365,10 +365,16 @@ async function searchMusicBrainzDirect(q, stype, dbg){
   return null;
 }
 
+// localStorage는 사파리 시크릿 모드나 사이트 데이터가 차단된 환경에서 읽기만 해도
+// 예외를 던진다. 최상위에서 그대로 읽으면 스크립트가 통째로 죽어 화면이 빈 채로 뜬다.
+function lsGet(k){ try{ return localStorage.getItem(k); }catch{ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch{ /* 저장 못 해도 계속 쓴다 */ } }
+function lsDel(k){ try{ localStorage.removeItem(k); }catch{ /* 무시 */ } }
+
 const S={
   // 기본값은 Lite 계열. 무료 등급에서 하루 500회로 다른 모델(20회)보다 25배 넉넉하다.
-  model:localStorage.getItem('ma_model')||'gemini-3.5-flash-lite',
-  pill:localStorage.getItem('ma_pill')||'3.5 Flash Lite',
+  model:lsGet('ma_model')||'gemini-3.5-flash-lite',
+  pill:lsGet('ma_pill')||'3.5 Flash Lite',
   quotaCheckedOn:'',
   stype:'song',
   models:[],
@@ -384,8 +390,8 @@ const S={
 window.onload=function(){
   document.getElementById('pill-lbl').textContent=S.pill;
   // Gemini 키는 Worker 환경변수로 옮겨졌다. 예전 버전이 브라우저에 저장해 둔 키를 지운다.
-  localStorage.removeItem('ma_key1');
-  localStorage.removeItem('ma_key2');
+  lsDel('ma_key1');
+  lsDel('ma_key2');
   loadModels();
 };
 
@@ -394,7 +400,7 @@ window.onload=function(){
 // 하루 한 번만 새로 받고 그 사이에는 저장해 둔 걸 쓴다.
 async function loadModels(){
   try{
-    const saved=JSON.parse(localStorage.getItem('ma_models')||'null');
+    const saved=JSON.parse(lsGet('ma_models')||'null');
     if(saved && Date.now()-saved.at < 86400000 && saved.list?.length){
       S.models=saved.list; S.quotaCheckedOn=saved.checkedOn||''; return;
     }
@@ -404,7 +410,7 @@ async function loadModels(){
     const d=await res.json();
     if(d.models?.length){
       S.models=d.models; S.quotaCheckedOn=d.quotaCheckedOn||'';
-      localStorage.setItem('ma_models',JSON.stringify({at:Date.now(),list:d.models,checkedOn:d.quotaCheckedOn}));
+      lsSet('ma_models',JSON.stringify({at:Date.now(),list:d.models,checkedOn:d.quotaCheckedOn}));
     }
   }catch{ /* 못 받아오면 지금 고른 모델로 계속 쓴다 */ }
 }
@@ -413,14 +419,14 @@ async function loadModels(){
 // 실제 사용량이라도 보여준다. 날짜가 바뀌면 0부터 다시 센다.
 function usageMap(){
   try{
-    const u=JSON.parse(localStorage.getItem('ma_usage')||'{}');
+    const u=JSON.parse(lsGet('ma_usage')||'{}');
     return u.day===new Date().toDateString() ? u : {day:new Date().toDateString(), n:{}};
   }catch{ return {day:new Date().toDateString(), n:{}}; }
 }
 function bumpUsage(model){
   const u=usageMap();
   u.n[model]=(u.n[model]||0)+1;
-  try{ localStorage.setItem('ma_usage',JSON.stringify(u)); }catch{}
+  lsSet('ma_usage',JSON.stringify(u));
 }
 
 // 모델 id에서 짧은 표시 이름을 만든다("gemini-3.5-flash-lite" → "3.5 Flash Lite").
@@ -467,7 +473,7 @@ function closeOverlay(id){document.getElementById(id).classList.remove('open');}
 function selModel(model){
   const pill=shortLabel(model);
   S.model=model;S.pill=pill;
-  localStorage.setItem('ma_model',model);localStorage.setItem('ma_pill',pill);
+  lsSet('ma_model',model);lsSet('ma_pill',pill);
   document.getElementById('pill-lbl').textContent=pill;
   closeOverlay('model-overlay');
 }
