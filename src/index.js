@@ -207,8 +207,19 @@ async function deezerTopTracks(ids) {
 // 가수의 대표곡을 실제 데이터로 가져온다. 입문 가이드를 모델 기억에만 맡기면 존재하지
 // 않는 곡이 섞이므로, 목록은 Deezer에서 받고 모델에게는 순서와 이유만 붙이게 한다.
 async function deezerArtistTopTracks(name) {
-  const fame = await deezerArtistFame([name]);
-  const info = fame.get(normalize(name));
+  // 검색 결과의 가수 이름은 "Post Malone & Swae Lee"처럼 합작 표기인 경우가 많다.
+  // Deezer에는 그런 이름의 가수가 없으므로 통째로 찾으면 무조건 실패한다.
+  // 전체 이름을 먼저 시도하고, 안 되면 앞쪽 주 아티스트만 떼어 다시 찾는다.
+  const candidates = [name];
+  const lead = name.split(/\s*(?:&|,|feat\.?|ft\.?|with|x)\s+/i)[0].trim();
+  if (lead && lead !== name) candidates.push(lead);
+
+  let info = null;
+  for (const cand of candidates) {
+    const fame = await deezerArtistFame([cand]);
+    info = fame.get(normalize(cand));
+    if (info) { name = cand; break; }
+  }
   if (!info) return null;
   for (let i = 0; i < 3; i++) {
     try {

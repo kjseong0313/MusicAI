@@ -1116,18 +1116,22 @@ function renderResult(type,text){
 // ── 파트별 난이도 ──
 // 곡을 새로 고르면 분석 결과를 지우고 시작 버튼만 보여 준다. 자동으로 돌리면
 // 탭만 열어도 무료 한도가 닳으므로 누를 때만 부른다.
+// 세 기능을 고르는 버튼. 결과를 그린 뒤에도 다시 붙여야 다른 기능으로 넘어갈 수 있다.
+function toolRow(){
+  return `<div class="tool-row">
+    <button class="diff-go" onclick="doDifficulty()">🎚️ 파트별 난이도</button>
+    <button class="diff-go" onclick="doIntro()">🎧 입문 가이드</button>
+    <button class="diff-go" onclick="doIdioms()">📖 표현 풀이</button>
+  </div>`;
+}
+
 function resetDifficulty(){
   const area=document.getElementById('chat-area');
   if(!area) return;
   S.cache.difficulty='';
   area.innerHTML=S.track
     ? `<div class="bbl a">🎵 <b>${esc(S.track.title)}</b> — ${esc(S.track.artist)}<br>
-         아래에서 골라보세요. 결과를 보고 이어서 질문해도 됩니다.</div>
-       <div class="tool-row">
-         <button class="diff-go" onclick="doDifficulty()">🎚️ 파트별 난이도</button>
-         <button class="diff-go" onclick="doIntro()">🎧 입문 가이드</button>
-         <button class="diff-go" onclick="doIdioms()">📖 표현 풀이</button>
-       </div>`
+         아래에서 골라보세요. 결과를 보고 이어서 질문해도 됩니다.</div>${toolRow()}`
     : '<div class="bbl a">검색 탭에서 곡을 먼저 선택해주세요 🎵</div>';
 }
 
@@ -1139,7 +1143,9 @@ async function runTool(prompt, thinkBudget, cacheKey, extraHtml=''){
     const now=Date.now();
     if(!force&&now-lastPaint<400) return;
     lastPaint=now;
-    area.innerHTML=`<div class="bbl a">${mdToHtml(text)}</div>`+(force?extraHtml:'');
+    // 다 그린 뒤에는 기능 버튼을 다시 붙인다. 이게 없으면 한 기능을 실행한 순간
+    // 버튼이 지워져서 곡을 다시 고르기 전에는 나머지 두 기능으로 못 넘어간다.
+    area.innerHTML=`<div class="bbl a">${mdToHtml(text)}</div>`+(force?extraHtml+toolRow():'');
     area.scrollTop=area.scrollHeight;
   };
   area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
@@ -1179,7 +1185,9 @@ async function doIntro(){
   const list=top.tracks.slice(0,20).map((t,i)=>`${i+1}. ${t.title}${t.album?` (${t.album})`:''}`).join('\n');
   // 목록의 곡을 눌러 바로 검색할 수 있게 한다.
   const chips=`<div class="tool-row">`+top.tracks.slice(0,8)
-    .map(t=>`<button class="chip" onclick="searchFor(${JSON.stringify(t.title).replace(/"/g,'&quot;')})">${esc(t.title)}</button>`).join('')
+    // esc를 거쳐야 한다. 따옴표만 바꾸면 제목 안의 &가 그대로 남아, "&#34;" 같은
+    // 문자열이 속성 안에서 진짜 따옴표로 풀리면서 스크립트가 비집고 들어올 수 있다.
+    .map(t=>`<button class="chip" onclick="searchFor(${esc(JSON.stringify(t.title))})">${esc(t.title)}</button>`).join('')
     +`</div>`;
 
   const prompt=`${S.track.artist}를 처음 듣는 사람을 위한 입문 가이드를 써주세요.
