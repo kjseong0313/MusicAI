@@ -1071,17 +1071,18 @@ async function runSection(type, prompt, thinkBudget, search=false){
       paint(full,true);
       return full;
     }catch(e){
-      if(e.fatal) throw e;
-      const full=await callGemini(prompt,'ana-content',[],null,thinkBudget,6,useSearch);
+      // 검색을 붙인 시도는 재시도하지 않는다. 실패하면 아래에서 검색 없이 처음부터 간다.
+      if(e.fatal||useSearch) throw e;
+      const full=await callGemini(prompt,'ana-content',[],null,thinkBudget);
       renderResult(type,full);
       return full;
     }
   };
   try{
-    return await run(search);
+    return await run(searchOn(search));
   }catch(e){
-    // 검색을 지원하지 않는 모델은 400을 낸다. 그때만 검색 없이 한 번 더 간다.
-    if(!search||e.code!==400) throw e;
+    if(!searchOn(search)) throw e;
+    searchFailed(e);
     return await run(false);
   }
 }
@@ -1182,19 +1183,20 @@ async function runTool(prompt, thinkBudget, cacheKey, extraHtml='', search=false
   area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
   try{
     let full;
-    // 검색을 지원하지 않는 모델은 400을 낸다. 그때만 검색 없이 한 번 더 간다.
     const run=async(useSearch)=>{
       try{
         return await callGeminiStream(prompt,t=>paint(t,false),[],null,thinkBudget,useSearch);
       }catch(e){
-        if(e.fatal) throw e;
-        return await callGemini(prompt,null,[],null,thinkBudget,6,useSearch);
+        // 검색을 붙인 시도는 재시도하지 않는다. 실패하면 아래에서 검색 없이 처음부터 간다.
+        if(e.fatal||useSearch) throw e;
+        return await callGemini(prompt,null,[],null,thinkBudget);
       }
     };
     try{
-      full=await run(search);
+      full=await run(searchOn(search));
     }catch(e){
-      if(!search||e.code!==400) throw e;
+      if(!searchOn(search)) throw e;
+      searchFailed(e);
       full=await run(false);
     }
     paint(full,true);
@@ -1498,6 +1500,17 @@ function genConfig(thinkBudget){
   const meta=S.models.find(m=>m.id===S.model);
   if(meta?.thinking && thinkBudget!==null) cfg.thinkingConfig={thinkingBudget:thinkBudget};
   return cfg;
+}
+
+// 검색 그라운딩은 모델마다 되고 안 되고가 갈린다. 3.x Lite 계열은 도구를 붙이는 순간
+// 429(quota exceeded)를 내는데, 같은 모델도 도구 없이는 멀쩡히 답한다. 무료 한도에
+// 검색 몫이 따로 없는 것으로 보인다. 한 번 막히면 그 모델로는 계속 막히므로, 실패한
+// 모델을 기억해 두고 그 뒤로는 검색 없이 바로 부른다(매번 한 번씩 헛call하지 않게).
+const searchBlocked=new Set();
+function searchOn(want){ return want && !searchBlocked.has(S.model); }
+function searchFailed(e){
+  searchBlocked.add(S.model);
+  console.warn('검색 그라운딩을 끕니다:', S.model, e?.code, e?.message);
 }
 
 function reqBody(prompt, history, sysText, thinkBudget, search){
