@@ -1,15 +1,11 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>MusicClaude</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a26;--accent:#c8ff00;--accent2:#7c3aed;--text:#f0f0f0;--muted:#555;--border:rgba(200,255,0,0.15);--card:rgba(255,255,255,0.04)}
+:root{color-scheme:dark;--bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a26;--accent:#c8ff00;--accent2:#7c3aed;--text:#f0f0f0;--muted:#555;--border:rgba(200,255,0,0.15);--card:rgba(255,255,255,0.04)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-serif;min-height:100vh;overflow-x:hidden}
-#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+html,body{height:100%}
+#app{display:flex;flex-direction:column;height:100%;overflow:hidden}
 
 /* HEADER */
 .hdr{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1rem;background:rgba(10,10,15,.98);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);flex-shrink:0}
@@ -128,8 +124,6 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 </style>
-</head>
-<body>
 <div id="app">
 
   <!-- HEADER -->
@@ -390,12 +384,8 @@ function renderResults(items,page){
   pg.appendChild(nextBtn);
 }
 
-// 커버가 없는 음반이 많아(특히 MusicBrainz의 커버 아트 아카이브) 404면 아이콘으로 되돌린다.
-function imgCell(url, icon){
-  return url
-    ? `<div class="ri-img"><img src="${esc(url)}" loading="lazy" onerror="this.parentNode.textContent='${icon}'"></div>`
-    : `<div class="ri-img">${icon}</div>`;
-}
+// 아티팩트는 외부 이미지를 못 불러와서 앨범 아트 대신 아이콘을 쓴다.
+function imgCell(url, icon){ return `<div class="ri-img">${icon}</div>`; }
 
 function makeResultItem(item){
   const div=document.createElement('div');div.className='ri';
@@ -514,7 +504,7 @@ function loadTrack(title,artist,artUrl,meta={}){
   S.cache={};
   // 분석탭 업데이트
   document.getElementById('ana-now').innerHTML=`
-    <div class="ana-cover">${artUrl?`<img src="${esc(artUrl)}">`:'🎵'}</div>
+    <div class="ana-cover">🎵</div>
     <div class="ana-meta"><div class="ana-title">${esc(title)}</div><div class="ana-artist">${esc(artist)}</div></div>`;
   document.querySelectorAll('.ana-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('btn-trans').disabled=true;
@@ -526,7 +516,7 @@ function loadTrack(title,artist,artUrl,meta={}){
   // 다시 달아 준다. 빠뜨리면 두 번째 곡부터 여기서 예외가 나고, 그 아래 초기화가
   // 통째로 건너뛰어져 대화탭이 첫 곡에 붙박이가 된다.
   document.getElementById('chat-now').innerHTML=`
-    <div class="chat-cover">${artUrl?`<img src="${esc(artUrl)}">`:'🎵'}</div>
+    <div class="chat-cover">🎵</div>
     <div class="chat-meta"><div class="chat-track" id="chat-track-name">${esc(title)}</div><div class="chat-sub">${esc(artist)}</div></div>`;
   S.chatHist=[];
   resetDifficulty();
@@ -1208,5 +1198,3 @@ function mdToHtml(s){
     .replace(/^\s*[-*]\s+/gm, '· ');
 }
 </script>
-</body>
-</html>
