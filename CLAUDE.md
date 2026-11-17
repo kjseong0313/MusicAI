@@ -26,6 +26,16 @@ until curl -s "https://kjseong0313.github.io/MusicAI/index.html?cb=$(date +%s%N)
 
 `wrangler.jsonc`에 `placement: smart`가 켜져 있다. 끄면 안 된다 — 아래 참고.
 
+### Claude 아티팩트판 (`claude.html`)
+
+같은 앱을 claude.ai 아티팩트로 올린 판. 분석 엔진이 Gemini 무료 대신 Claude(`sample`,
+내 구독 사용량)다. 아티팩트는 외부 fetch가 막혀 있어서, Worker를 claude.ai 커스텀
+커넥터 **"MusicAI"**(`https://musicai.kjseong0313.workers.dev/mcp`)로 등록하고 그
+`get` 도구로 기존 GET 라우트를 빌려 쓴다(`/lyrics`는 이걸 위해 새로 만든 라우트).
+- iTunes 브라우저 직접 호출이 없으므로 검색은 늘 Worker 경로(Deezer → MusicBrainz)다.
+- 검색 그라운딩이 없다. 조성·음역은 모델 기억 + "추정" 표시.
+- 모델 선택·무료 한도·호출 간격 코드는 없다. `index.html`을 고치면 여기도 맞춰 줄 것.
+
 ## 검색이 이렇게 생긴 이유
 
 세 소스를 쓰는데, 각각 다른 방식으로 망가져 있어서 조합할 수밖에 없었다.

@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>🎵 MusicAI</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a26;--accent:#c8ff00;--accent2:#7c3aed;--text:#f0f0f0;--muted:#555;--border:rgba(200,255,0,0.15);--card:rgba(255,255,255,0.04)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-serif;min-height:100vh;overflow-x:hidden}
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1rem;background:rgba(10,10,15,.98);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);flex-shrink:0}
+.hdr-logo{font-family:'Bebas Neue',sans-serif;font-size:1.5rem;letter-spacing:4px;color:var(--accent)}
+.hdr-right{display:flex;gap:.5rem;align-items:center}
+.hdr-pill{display:flex;align-items:center;gap:.35rem;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.35rem .75rem;font-size:.72rem;color:var(--accent);cursor:pointer;transition:all .2s;user-select:none;white-space:nowrap}
+.hdr-pill:hover{background:rgba(200,255,0,.1)}
+.hdr-pill.key-ok{border-color:rgba(200,255,0,.5)}
+.hdr-pill.key-none{border-color:rgba(255,100,100,.3);color:#f87171}
+.pill-dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 2s infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* TABS */
+.tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{flex:1;padding:.85rem;text-align:center;font-size:.78rem;color:var(--muted);cursor:pointer;transition:all .2s;border-bottom:2px solid transparent;font-family:'Noto Sans KR',sans-serif}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* TAB CONTENT */
+.tc{display:none;flex:1;flex-direction:column;overflow:hidden}
+.tc.active{display:flex}
+
+/* SEARCH */
+.search-wrap{padding:1rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.sbar{display:flex;gap:.6rem;margin-bottom:.7rem}
+.sbar input{flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.75rem 1rem;color:var(--text);font-size:1rem;font-family:'Noto Sans KR',sans-serif;outline:none;transition:border .2s}
+.sbar input:focus{border-color:var(--accent)}
+.sbar input::placeholder{color:var(--muted)}
+.sbar button{background:var(--accent);color:#000;border:none;border-radius:12px;padding:.75rem 1.1rem;font-size:1rem;cursor:pointer;font-weight:700;transition:all .2s}
+.sbar button:hover{background:#d4ff33}
+.tbts{display:flex;gap:.5rem}
+.tbt{flex:1;padding:.45rem;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:transparent;color:var(--muted);font-size:.78rem;cursor:pointer;transition:all .2s;font-family:'Noto Sans KR',sans-serif}
+.tbt.active{background:rgba(200,255,0,.15);border-color:var(--accent);color:var(--accent)}
+.results-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.results{flex:1;overflow-y:auto;padding:.8rem}
+.pagination{display:flex;align-items:center;justify-content:center;gap:.4rem;padding:.7rem;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg2)}
+.pg-btn{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.4rem .7rem;color:var(--muted);font-size:.78rem;cursor:pointer;transition:all .2s;font-family:'Noto Sans KR',sans-serif;min-width:32px;text-align:center}
+.pg-btn:hover{border-color:var(--accent);color:var(--accent)}
+.pg-btn.active{background:rgba(200,255,0,.15);border-color:var(--accent);color:var(--accent);font-weight:700}
+.pg-btn:disabled{opacity:.3;cursor:not-allowed}
+.breadcrumb{display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.bc-btn{background:none;border:none;color:var(--accent);cursor:pointer;font-size:.8rem;font-family:'Noto Sans KR',sans-serif;padding:0}
+.bc-sep{color:var(--muted);font-size:.75rem}
+.bc-cur{font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ri{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:.9rem;margin-bottom:.7rem;cursor:pointer;transition:all .2s;display:flex;gap:.9rem;align-items:center}
+.ri:hover{border-color:var(--accent);background:rgba(200,255,0,.05)}
+.ri-img{width:52px;height:52px;border-radius:8px;background:var(--bg3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.4rem;overflow:hidden}
+.ri-img img{width:100%;height:100%;object-fit:cover}
+.ri-info{flex:1;min-width:0}
+.ri-title{font-weight:500;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:.25rem}
+.ri-sub{font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ri-badge{font-size:.65rem;padding:.2rem .5rem;border-radius:6px;background:rgba(124,58,237,.3);color:#a78bfa;flex-shrink:0}
+
+/* ANALYSIS */
+.ana-hdr{padding:1rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.ana-now{display:flex;align-items:center;gap:.8rem}
+.ana-cover{width:52px;height:52px;border-radius:10px;background:var(--bg3);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+.ana-cover img{width:100%;height:100%;object-fit:cover}
+.ana-meta{flex:1;min-width:0}
+.ana-title{font-weight:700;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ana-artist{font-size:.8rem;color:var(--muted)}
+.ana-empty{color:var(--muted);font-size:.85rem}
+.ana-btns{display:flex;gap:.5rem;padding:.7rem 1rem;flex-shrink:0;overflow-x:auto}
+.ana-btns::-webkit-scrollbar{display:none}
+.ana-btn{flex:1;min-width:0;padding:.6rem .3rem;border-radius:10px;border:1px solid rgba(255,255,255,.08);background:var(--card);color:var(--text);font-size:.75rem;font-family:'Noto Sans KR',sans-serif;cursor:pointer;transition:all .2s;text-align:center;display:flex;flex-direction:column;align-items:center;gap:.2rem;white-space:nowrap}
+.ana-btn:hover:not(:disabled){border-color:var(--accent);background:rgba(200,255,0,.05)}
+.ana-btn.active{border-color:var(--accent);background:rgba(200,255,0,.08)}
+.ana-btn:disabled{opacity:.3;cursor:not-allowed}
+.ana-btn-icon{font-size:1rem}
+.ana-btn-label{font-weight:600;font-size:.75rem}
+.ana-btn-desc{font-size:.62rem;color:var(--muted)}
+.ana-content{flex:1;overflow-y:auto;padding:1rem}
+
+/* RESULT */
+.result-box{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:1rem}
+.result-box-title{font-size:.65rem;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:.8rem}
+.result-text{font-size:.9rem;line-height:1.8;color:#ddd;white-space:pre-wrap}
+.md-h{display:inline-block;color:var(--accent);font-size:.95rem;margin-top:.4rem}
+.md-hr{display:block;height:1px;background:var(--border);margin:.7rem 0}
+.lyric-plain{font-size:.9rem;color:#ddd;line-height:2.1;white-space:pre-line}
+.lyric-line{margin-bottom:.8rem;padding-bottom:.8rem;border-bottom:1px solid rgba(255,255,255,.05)}
+.lyric-line:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.lyric-orig{font-size:.9rem;color:#ddd;line-height:1.6}
+.lyric-ko{font-size:.85rem;color:#a78bfa;line-height:1.6;margin-top:.2rem}
+.lyric-explain{font-size:.82rem;color:#86efac;line-height:1.6;margin-top:.3rem;padding:.4rem .6rem;background:rgba(134,239,172,.06);border-radius:6px;border-left:2px solid rgba(134,239,172,.3)}
+
+/* CHAT */
+.chat-hdr{padding:1rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.chat-now{display:flex;align-items:center;gap:.8rem}
+.chat-cover{width:36px;height:36px;border-radius:8px;background:var(--bg3);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:1rem}
+.chat-cover img{width:100%;height:100%;object-fit:cover}
+.chat-meta{flex:1;min-width:0}
+.chat-track{font-weight:600;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-sub{font-size:.75rem;color:var(--muted)}
+.chat-area{flex:1;overflow-y:auto;padding:.8rem;display:flex;flex-direction:column;gap:.6rem}
+.bbl{max-width:82%;padding:.7rem .9rem;border-radius:14px;font-size:.86rem;line-height:1.6;white-space:pre-wrap}
+.bbl.u{background:var(--accent);color:#000;align-self:flex-end;border-bottom-right-radius:4px;font-weight:500}
+.bbl.a{background:var(--bg3);color:#ddd;align-self:flex-start;border-bottom-left-radius:4px;border:1px solid rgba(255,255,255,.06)}
+.tool-row{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.3rem}
+.chip{background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:.4rem .75rem;color:var(--text);font-size:.76rem;font-family:'Noto Sans KR',sans-serif;cursor:pointer}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.diff-go{align-self:flex-start;background:var(--accent);color:#000;border:none;border-radius:12px;padding:.7rem 1.1rem;font-size:.88rem;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer;margin-top:.2rem}
+.chat-bar{display:flex;gap:.6rem;padding:.8rem;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.chat-bar input{flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.7rem .9rem;color:var(--text);font-size:.9rem;font-family:'Noto Sans KR',sans-serif;outline:none;transition:border .2s}
+.chat-bar input:focus{border-color:var(--accent)}
+.chat-send{background:var(--accent2);border:none;border-radius:12px;padding:.7rem 1rem;color:#fff;font-size:1.1rem;cursor:pointer;transition:all .2s}
+.chat-send:hover{background:#6d28d9}
+
+/* UTILS */
+.loading{display:flex;align-items:center;justify-content:center;padding:2rem;color:var(--muted);font-size:.88rem;gap:.7rem}
+.spin{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{padding:3rem 1rem;text-align:center;color:var(--muted);font-size:.88rem}
+.empty .ico{font-size:2.5rem;margin-bottom:.8rem}
+.retry-msg{color:var(--accent);font-size:.85rem;text-align:center;padding:1rem}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div class="hdr-logo">MUSICAI</div>
+    <div class="hdr-right">
+      <div class="hdr-pill key-ok"><div class="pill-dot"></div><span>Claude</span></div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" id="tab-s" onclick="goTab('s')">🔍 검색</div>
+    <div class="tab" id="tab-a" onclick="goTab('a')">🎵 분석</div>
+    <div class="tab" id="tab-c" onclick="goTab('c')">💬 대화</div>
+  </div>
+
+  <!-- SEARCH TAB -->
+  <div class="tc active" id="tc-s">
+    <div id="search-source" style="display:none;font-size:.7rem;color:var(--muted);padding:.3rem 1rem;background:var(--bg2);letter-spacing:.5px"></div>
+  <div class="search-wrap">
+      <div class="sbar">
+        <input type="text" id="sq" placeholder="곡, 앨범, 아티스트..." onkeydown="if(event.key==='Enter')doSearch()">
+        <button onclick="doSearch()">검색</button>
+      </div>
+      <div class="tbts">
+        <button class="tbt active" id="t-song" onclick="setType('song')">🎵 곡</button>
+        <button class="tbt" id="t-album" onclick="setType('album')">💿 앨범</button>
+        <button class="tbt" id="t-musicArtist" onclick="setType('musicArtist')">🎤 아티스트</button>
+      </div>
+    </div>
+    <!-- breadcrumb -->
+    <div class="breadcrumb" id="breadcrumb" style="display:none">
+      <button class="bc-btn" id="bc-back" onclick="bcBack()">← 뒤로</button>
+      <span class="bc-sep">›</span>
+      <span class="bc-cur" id="bc-cur"></span>
+    </div>
+    <div class="results-wrap">
+      <div class="results" id="results">
+        <div class="empty"><div class="ico">🎵</div>곡, 앨범, 아티스트를 검색해보세요</div>
+      </div>
+      <div class="pagination" id="pagination" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ANALYSIS TAB -->
+  <div class="tc" id="tc-a" style="flex-direction:column">
+    <div class="ana-hdr">
+      <div class="ana-now" id="ana-now">
+        <div class="ana-empty">검색 탭에서 곡을 선택해주세요</div>
+      </div>
+    </div>
+    <div class="ana-btns">
+      <button class="ana-btn" id="btn-desc" onclick="doSection('desc')">
+        <div class="ana-btn-icon">📖</div>
+        <div class="ana-btn-label">곡 설명</div>
+        <div class="ana-btn-desc">AI 세세 분석</div>
+      </button>
+      <button class="ana-btn" id="btn-lyrics" onclick="doSection('lyrics')">
+        <div class="ana-btn-icon">🎤</div>
+        <div class="ana-btn-label">가사</div>
+        <div class="ana-btn-desc">원문 가사</div>
+      </button>
+      <button class="ana-btn" id="btn-trans" onclick="doSection('trans')" disabled>
+        <div class="ana-btn-icon">🌐</div>
+        <div class="ana-btn-label">가사 번역</div>
+        <div class="ana-btn-desc">가사 먼저 필요</div>
+      </button>
+      <button class="ana-btn" id="btn-interp" onclick="doSection('interp')" disabled>
+        <div class="ana-btn-icon">🔍</div>
+        <div class="ana-btn-label">가사 해석</div>
+        <div class="ana-btn-desc">번역 먼저 필요</div>
+      </button>
+    </div>
+    <div class="ana-content" id="ana-content">
+      <div class="empty"><div class="ico">👆</div>위 버튼을 눌러 분석을 시작하세요</div>
+    </div>
+  </div>
+
+  <!-- CHAT TAB -->
+  <div class="tc" id="tc-c" style="flex-direction:column">
+    <div class="chat-hdr">
+      <div class="chat-now" id="chat-now">
+        <div class="chat-meta">
+          <div class="chat-track" id="chat-track-name">선택된 곡 없음</div>
+          <div class="chat-sub">곡을 고르면 파트별로 연주·노래 난이도를 따져줍니다</div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-area" id="chat-area">
+      <div class="bbl a">검색 탭에서 곡을 먼저 선택해주세요 🎵</div>
+    </div>
+    <div class="chat-bar">
+      <input type="text" id="chat-input" placeholder="난이도에 대해 더 물어보기..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="chat-send" onclick="sendChat()">↑</button>
+    </div>
+  </div>
+
+</div>
+<script>
+// ── Worker 호출 (claude.ai 커넥터 경유) ──
+// 아티팩트는 외부로 fetch를 못 한다. 대신 claude.ai에 커넥터로 등록한 Worker의 `get`
+// 도구가 기존 GET 라우트(/itunes, /lyrics 등)를 그대로 대신 불러 준다.
+// 커넥터 이름은 claude.ai 설정에서 등록할 때 붙인 이름과 같아야 한다.
+const CONNECTOR='MusicAI';
+let mcpP=null;
+function mcp(){ return mcpP||=(window.claude?.use('mcp')||Promise.resolve(null)); }
+
+const MCP_FIX={
+  server_not_connected:`claude.ai 설정 → 커넥터에서 "${CONNECTOR}" 커넥터를 추가해주세요.`,
+  needs_reauth:`claude.ai 설정 → 커넥터에서 "${CONNECTOR}"를 다시 연결해주세요.`,
+  not_in_manifest:'이 페이지에서 커넥터 사용이 허용되지 않았습니다. 페이지 권한 메뉴에서 켜주세요.',
+  approval_required:'커넥터 사용 승인이 필요합니다. 다시 눌러 승인해주세요.',
+  selection_required:`"${CONNECTOR}" 이름의 커넥터가 여러 개입니다. 하나를 골라주세요.`,
+};
+
+async function api(path){
+  const m=await mcp();
+  if(!m) throw new Error('이 화면에서는 커넥터를 쓸 수 없습니다 (claude.ai에서 열어주세요).');
+  let r;
+  try{
+    r=await m.callTool(CONNECTOR,'get',{path},{cache:{staleTime:1800000,gcTime:1800000}});
+  }catch(e){
+    if(e.code==='tool_error'){
+      // Worker가 4xx/5xx를 돌려준 경우. 본문이 {"error": "..."} 꼴이다.
+      const t=e.result?.content?.[0]?.text||e.message;
+      let msg=t; try{ msg=JSON.parse(t).error||t; }catch{}
+      throw new Error(msg);
+    }
+    throw new Error(MCP_FIX[e.code]||`커넥터 오류 (${e.code}): ${e.message}`);
+  }
+  return r.payload;
+}
+
+// Worker가 iTunes → Deezer → MusicBrainz 순으로 알아서 고른다.
+async function itunesSearch(q, stype){
+  const d=await api(`/itunes?q=${encodeURIComponent(q)}&entity=${stype}&country=US&limit=50`);
+  if(!d?.results?.length) throw new Error(d?.error||'결과 없음');
+  return {results:d.results, source:d.source||'iTunes'};
+}
+
+const S={
+  stype:'song',
+  track:null,
+  cache:{},
+  chatHist:[],
+  searchResults:[],
+  currentPage:0,
+  pageSize:10,
+  browseStack:[],
+  searchRequest:0
+};
+
+// ── TABS ──
+function goTab(n){
+  ['s','a','c'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('active',t===n);
+    document.getElementById('tc-'+t).classList.toggle('active',t===n);
+  });
+}
+function setType(t){
+  S.stype=t;
+  document.querySelectorAll('.tbt').forEach(b=>b.classList.remove('active'));
+  document.getElementById('t-'+t).classList.add('active');
+  // 브레드크럼 리셋
+  S.browseStack=[];
+  hideBreadcrumb();
+}
+
+// ── BREADCRUMB ──
+function showBreadcrumb(label){
+  document.getElementById('breadcrumb').style.display='flex';
+  document.getElementById('bc-cur').textContent=label;
+}
+function hideBreadcrumb(){
+  document.getElementById('breadcrumb').style.display='none';
+}
+function bcBack(){
+  S.browseStack.pop();
+  if(S.browseStack.length===0){
+    hideBreadcrumb();
+    renderResults(S.searchResults,0);
+  }else{
+    const prev=S.browseStack[S.browseStack.length-1];
+    showBreadcrumb(prev.label);
+    renderList(prev.items, prev.isTrackList, prev.artistName);
+  }
+}
+
+// ── SEARCH ──
+async function doSearch(){
+  const q=document.getElementById('sq').value.trim();if(!q)return;
+  const requestId=++S.searchRequest;
+  S.browseStack=[];hideBreadcrumb();
+  const area=document.getElementById('results');
+  area.innerHTML='<div class="loading"><div class="spin"></div>검색 중...</div>';
+  document.getElementById('pagination').style.display='none';
+  document.getElementById('search-source').style.display='none';
+  try{
+    let results, source, note;
+    try{
+      ({results, source, note}=await itunesSearch(q, S.stype));
+    }catch(e1){
+      if(requestId!==S.searchRequest)return;
+      area.innerHTML='<div class="loading"><div class="spin"></div>재시도 중...</div>';
+      ({results, source, note}=await itunesSearch(q, S.stype));
+    }
+    if(requestId!==S.searchRequest)return;
+    const src=source.includes('Deezer')?'Deezer':source.includes('MusicBrainz')?'MusicBrainz':'iTunes';
+    results.forEach(r=>r._src=src);
+    S.searchResults=results;
+    S.searchSource=source;
+    if(!results.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>검색 결과가 없습니다</div>';return;}
+    // 출처 표시
+    const srcEl=document.getElementById('search-source');
+    srcEl.textContent='검색 출처: '+source+(note?'  ('+note+')':'');
+    srcEl.style.display='block';
+    renderResults(results,0);
+  }catch(e){if(requestId===S.searchRequest)area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>검색 실패: ${esc(e.message)}</div>`;}
+}
+
+function renderResults(items,page){
+  S.currentPage=page;
+  const start=page*S.pageSize;
+  const slice=items.slice(start,start+S.pageSize);
+  const area=document.getElementById('results');
+  area.innerHTML='';
+  slice.forEach(item=>area.appendChild(makeResultItem(item)));
+  // 페이지네이션
+  const totalPages=Math.ceil(items.length/S.pageSize);
+  const pg=document.getElementById('pagination');
+  if(totalPages<=1){pg.style.display='none';return;}
+  pg.style.display='flex';
+  pg.innerHTML='';
+  // 이전
+  const prevBtn=document.createElement('button');
+  prevBtn.className='pg-btn';prevBtn.textContent='←';
+  prevBtn.disabled=page===0;
+  prevBtn.onclick=()=>renderResults(items,page-1);
+  pg.appendChild(prevBtn);
+  // 페이지 번호
+  const maxShow=5;
+  let startP=Math.max(0,page-2);
+  let endP=Math.min(totalPages-1,startP+maxShow-1);
+  if(endP-startP<maxShow-1)startP=Math.max(0,endP-maxShow+1);
+  for(let i=startP;i<=endP;i++){
+    const btn=document.createElement('button');
+    btn.className='pg-btn'+(i===page?' active':'');
+    btn.textContent=i+1;
+    const pi=i;btn.onclick=()=>renderResults(items,pi);
+    pg.appendChild(btn);
+  }
+  // 다음
+  const nextBtn=document.createElement('button');
+  nextBtn.className='pg-btn';nextBtn.textContent='→';
+  nextBtn.disabled=page>=totalPages-1;
+  nextBtn.onclick=()=>renderResults(items,page+1);
+  pg.appendChild(nextBtn);
+}
+
+// 커버가 없는 음반이 많아(특히 MusicBrainz의 커버 아트 아카이브) 404면 아이콘으로 되돌린다.
+function imgCell(url, icon){
+  return url
+    ? `<div class="ri-img"><img src="${esc(url)}" loading="lazy" onerror="this.parentNode.textContent='${icon}'"></div>`
+    : `<div class="ri-img">${icon}</div>`;
+}
+
+function makeResultItem(item){
+  const div=document.createElement('div');div.className='ri';
+  div.onclick=()=>selectItem(item);
+  let title='',sub='',badge='',icon='🎵';
+  const img=item.artworkUrl60||'';
+  if(S.stype==='song'){
+    title=item.trackName||'';
+    sub=(item.artistName||'')+' · '+(item.collectionName||'');
+    badge=item.releaseDate?.substring(0,4)||'';
+  }else if(S.stype==='album'){
+    title=item.collectionName||'';
+    sub=item.artistName||'';
+    badge=item.trackCount?item.trackCount+'곡':(item.releaseDate?.substring(0,4)||'');
+    icon='💿';
+  }else{
+    title=item.artistName||'';
+    sub=item.primaryGenreName||'';
+    icon='🎤';
+  }
+  div.innerHTML=`${imgCell(img,icon)}<div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(sub)}</div></div>${badge?`<div class="ri-badge">${esc(String(badge))}</div>`:''}`;
+  return div;
+}
+
+async function selectItem(item){
+  const area=document.getElementById('results');
+
+  if(S.stype==='musicArtist'){
+    area.innerHTML='<div class="loading"><div class="spin"></div>앨범 불러오는 중...</div>';
+    document.getElementById('pagination').style.display='none';
+    const label=item.artistName||'';
+    showBreadcrumb(label);
+    try{
+      const route=item._src==='Deezer'?`/deezer-artist-albums?id=${item.artistId}`
+        :item._src==='MusicBrainz'?`/mb-artist-albums?id=${item.artistId}`
+        :`/itunes-lookup?id=${item.artistId}&entity=album&country=US&limit=20`;
+      const d=await api(route);
+      const albums=(d.results||[]).filter(r=>!r.wrapperType||r.wrapperType==='collection');
+      // MusicBrainz release-group 응답에는 아티스트가 없어서, 여기서 선택한
+      // 아티스트를 보존하지 않으면 다음 트랙 화면에서 아티스트명이 빈다.
+      albums.forEach(a=>{
+        a._src=item._src||'iTunes';
+        if(!a.artistName)a.artistName=item.artistName||'';
+      });
+      S.browseStack.push({label,items:albums,isTrackList:false,artistName:label});
+      renderList(albums,false,label);
+    }catch(e){area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>앨범을 불러올 수 없습니다: ${esc(e.message)}</div>`;}
+    return;
+  }
+
+  if(S.stype==='album'){
+    await loadAlbumTracks(item);
+    return;
+  }
+
+  // 곡 선택
+  const art=(item.artworkUrl100||item.artworkUrl60||'').replace('100x100bb','600x600bb');
+  loadTrack(item.trackName||'', item.artistName||'', art, {
+    album:item.collectionName||'', year:(item.releaseDate||'').substring(0,4),
+    durationMs:item.trackTimeMillis||0, genre:item.primaryGenreName||''
+  });
+}
+
+async function loadAlbumTracks(album){
+  const area=document.getElementById('results');
+  area.innerHTML='<div class="loading"><div class="spin"></div>트랙 목록 불러오는 중...</div>';
+  document.getElementById('pagination').style.display='none';
+  const label=album.collectionName||album.title||'앨범';
+  showBreadcrumb(label);
+  try{
+    const id=album.collectionId;
+    const route=album._src==='Deezer'?`/deezer-album-tracks?id=${id}`
+      :album._src==='MusicBrainz'?`/mb-album-tracks?id=${id}`
+      :`/itunes-lookup?id=${id}&entity=song&country=US&limit=200`;
+    const d=await api(route);
+    let tracks=(d.results||[]).filter(r=>!r.wrapperType||r.wrapperType==='track');
+    tracks=tracks.sort((a,b)=>(a.trackNumber||0)-(b.trackNumber||0));
+    const art=(album.artworkUrl100||album.artworkUrl60||'').replace('100x100bb','600x600bb');
+    S.browseStack.push({label,items:tracks,isTrackList:true,artistName:album.artistName||'',artUrl:art});
+    renderList(tracks,true,album.artistName||'',art);
+  }catch(e){
+    area.innerHTML=`<div class="empty"><div class="ico">⚠️</div>트랙 목록 실패: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderList(items,isTrackList,artistName,artUrl){
+  const area=document.getElementById('results');
+  area.innerHTML='';
+  if(!items.length){area.innerHTML='<div class="empty"><div class="ico">😢</div>항목이 없습니다</div>';return;}
+  items.forEach((item,idx)=>{
+    const div=document.createElement('div');div.className='ri';
+    if(isTrackList){
+      const title=item.trackName||item.title||'';
+      const dur=item.trackTimeMillis?fmtMs(item.trackTimeMillis):(item.duration||'');
+      const num=item.trackNumber||idx+1;
+      const trackArt=artUrl||(item.artworkUrl100||'').replace('100x100bb','600x600bb');
+      div.onclick=()=>loadTrack(title,artistName||item.artistName||'',trackArt,
+        {album:S.browseStack[S.browseStack.length-1]?.label||'', durationMs:item.trackTimeMillis||0});
+      div.innerHTML=`<div class="ri-img" style="font-size:.85rem;color:var(--muted);font-family:'DM Mono',monospace;font-weight:600">${num}</div><div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(dur)}</div></div>`;
+    }else{
+      const title=item.collectionName||item.title||'';
+      const year=item.releaseDate?.substring(0,4)||item.year||'';
+      div.onclick=()=>loadAlbumTracks(item);
+      div.innerHTML=`${imgCell(item.artworkUrl60||'','💿')}<div class="ri-info"><div class="ri-title">${esc(title)}</div><div class="ri-sub">${esc(year)}</div></div>`;
+    }
+    area.appendChild(div);
+  });
+}
+
+// ── LOAD TRACK ──
+// meta에는 검색 결과에 딸려 온 앨범·발매연도·길이·장르를 담는다. 곡 설명을 만들 때
+// 모델에게 넘길 실제 근거라, 예전처럼 버리면 제목과 가수만 보고 쓰게 된다.
+function loadTrack(title,artist,artUrl,meta={}){
+  S.track={title,artist,artUrl,lyrics:null,lyricsSrc:null,
+           album:meta.album||'',year:meta.year||'',durationMs:meta.durationMs||0,genre:meta.genre||''};
+  S.cache={};
+  // 분석탭 업데이트
+  document.getElementById('ana-now').innerHTML=`
+    <div class="ana-cover">${artUrl?`<img src="${esc(artUrl)}">`:'🎵'}</div>
+    <div class="ana-meta"><div class="ana-title">${esc(title)}</div><div class="ana-artist">${esc(artist)}</div></div>`;
+  document.querySelectorAll('.ana-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-trans').disabled=true;
+  document.getElementById('btn-interp').disabled=true;
+  document.getElementById('btn-trans').querySelector('.ana-btn-desc').textContent='가사 먼저 필요';
+  document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='번역 먼저 필요';
+  document.getElementById('ana-content').innerHTML='<div class="empty"><div class="ico">👆</div>위 버튼을 눌러 분석을 시작하세요</div>';
+  // 대화탭 업데이트. 이 자리를 통째로 다시 그리므로 처음 HTML에 있던 id를 그대로
+  // 다시 달아 준다. 빠뜨리면 두 번째 곡부터 여기서 예외가 나고, 그 아래 초기화가
+  // 통째로 건너뛰어져 대화탭이 첫 곡에 붙박이가 된다.
+  document.getElementById('chat-now').innerHTML=`
+    <div class="chat-cover">${artUrl?`<img src="${esc(artUrl)}">`:'🎵'}</div>
+    <div class="chat-meta"><div class="chat-track" id="chat-track-name">${esc(title)}</div><div class="chat-sub">${esc(artist)}</div></div>`;
+  S.chatHist=[];
+  resetDifficulty();
+  goTab('a');
+  fetchLyrics(artist,title);
+}
+
+// ── LYRICS ──
+async function fetchLyrics(artist,title,track=S.track){
+  // Worker가 lyrics.ovh → lrclib 순으로 찾아 준다.
+  try{
+    const d=await api(`/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`);
+    if(d?.lyrics&&S.track===track){S.track.lyrics=d.lyrics;S.track.lyricsSrc=d.source;return true;}
+  }catch(e){ console.warn('가사 조회 실패:', e.message); }
+  if(S.track===track)S.track.lyricsSrc=null;
+  return false;
+}
+
+// ── 한국어 감지 ──
+function isKorean(text){
+  if(!text) return false;
+  const koreanChars = (text.match(/[가-힣]/g)||[]).length;
+  const totalChars = text.replace(/\s/g,'').length;
+  return totalChars > 0 && (koreanChars/totalChars) > 0.5; // 50% 이상 한글이면 한국어
+}
+
+// ── MANUAL LYRICS INPUT ──
+function showLyricsInput(){
+  const content=document.getElementById('ana-content');
+  const geniusUrl=`https://genius.com/search?q=${encodeURIComponent((S.track.artist||'')+' '+(S.track.title||''))}`;
+  content.innerHTML=`
+    <div class="result-box">
+      <div class="result-box-title">🎤 가사</div>
+      <div style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">자동으로 가사를 찾지 못했습니다.</div>
+      <a href="${geniusUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:.4rem;background:rgba(255,255,0,.08);border:1px solid rgba(255,255,0,.2);border-radius:10px;padding:.6rem 1rem;color:#c8ff00;font-size:.82rem;text-decoration:none;margin-bottom:1rem">
+        🔍 Genius에서 찾기 →
+      </a>
+      <div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem">가사를 복사했으면 아래에 붙여넣기 하세요:</div>
+      <textarea id="lyrics-paste" placeholder="가사 붙여넣기..." style="width:100%;min-height:200px;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:.8rem;color:var(--text);font-size:.88rem;font-family:'Noto Sans KR',sans-serif;outline:none;resize:vertical;line-height:1.7"></textarea>
+      <button onclick="savePastedLyrics()" style="width:100%;margin-top:.6rem;background:var(--accent);color:#000;border:none;border-radius:12px;padding:.85rem;font-size:.9rem;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer">가사 저장하기</button>
+    </div>`;
+}
+
+function savePastedLyrics(){
+  const text=document.getElementById('lyrics-paste')?.value.trim();
+  if(!text){alert('가사를 입력해주세요!');return;}
+  S.track.lyrics=text;
+  S.track.lyricsSrc='직접 입력';
+  S.cache.lyrics=text;
+  renderResult('lyrics',text);
+  if(isKorean(text)){
+    document.getElementById('btn-trans').disabled=false;
+    document.getElementById('btn-trans').style.opacity='0.5';
+    document.getElementById('btn-trans').querySelector('.ana-btn-desc').textContent='한국어 (건너뛰기 가능)';
+    document.getElementById('btn-interp').disabled=false;
+    document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='원문 / 해석 포맷';
+    const content2=document.getElementById('ana-content');
+    const notice2='<div style="background:rgba(200,255,0,.08);border:1px solid var(--border);border-radius:12px;padding:.6rem 1rem;font-size:.78rem;color:var(--accent);margin-bottom:.8rem">🇰🇷 한국어 가사 감지! 번역 없이 바로 <b>가사 해석</b>으로 넘어갈 수 있어요</div>';
+    renderResult('lyrics',text);
+    content2.innerHTML=notice2+content2.innerHTML;
+  }else{
+    document.getElementById('btn-trans').disabled=false;
+    document.getElementById('btn-trans').querySelector('.ana-btn-desc').textContent='원문 / 번역 포맷';
+  }
+}
+
+function editLyrics(){
+  const current=S.track.lyrics||'';
+  const content=document.getElementById('ana-content');
+  const src=S.track.lyricsSrc||'알 수 없음';
+  content.innerHTML=`
+    <div class="result-box">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem">
+        <div class="result-box-title" style="margin-bottom:0">✏️ 가사 수정</div>
+        <span style="font-size:.68rem;color:var(--muted);background:var(--bg3);padding:.2rem .55rem;border-radius:6px;border:1px solid rgba(255,255,255,.06)">출처: ${esc(src)}</span>
+      </div>
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:.6rem">수정 후 저장하면 번역/해석도 새로 생성됩니다</div>
+      <textarea id="lyrics-paste" style="width:100%;min-height:300px;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:.8rem;color:var(--text);font-size:.88rem;font-family:'Noto Sans KR',sans-serif;outline:none;resize:vertical;line-height:1.7">${esc(current)}</textarea>
+      <div style="display:flex;gap:.6rem;margin-top:.6rem">
+        <button onclick="savePastedLyrics()" style="flex:1;background:var(--accent);color:#000;border:none;border-radius:12px;padding:.85rem;font-size:.9rem;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer">저장</button>
+        <button onclick="doSection('lyrics')" style="flex:1;background:var(--card);color:var(--muted);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.85rem;font-size:.9rem;font-family:'Noto Sans KR',sans-serif;cursor:pointer">취소</button>
+      </div>
+    </div>`;
+}
+
+// ── SECTIONS ──
+async function doSection(type){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  document.querySelectorAll('.ana-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+type).classList.add('active');
+  if(S.cache[type]){renderResult(type,S.cache[type]);return;}
+  const content=document.getElementById('ana-content');
+
+  if(type==='lyrics'){
+    if(!S.track.lyrics){
+      content.innerHTML='<div class="loading"><div class="spin"></div>가사 불러오는 중...</div>';
+      await fetchLyrics(S.track.artist,S.track.title);
+    }
+    if(S.track.lyrics){
+      S.cache.lyrics=S.track.lyrics;
+      renderResult('lyrics',S.track.lyrics);
+      if(isKorean(S.track.lyrics)){
+        // 한국어 가사 → 번역 불필요, 바로 해석 활성화
+        const transBtn=document.getElementById('btn-trans');
+        transBtn.disabled=false;
+        transBtn.querySelector('.ana-btn-desc').textContent='한국어 (건너뛰기 가능)';
+        transBtn.style.opacity='0.5';
+        // 해석 바로 활성화
+        document.getElementById('btn-interp').disabled=false;
+        document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='원문 / 해석 포맷';
+        // 안내 메시지 - 가사 위에 추가 (덮어쓰지 않음)
+        const content=document.getElementById('ana-content');
+        const notice='<div style="background:rgba(200,255,0,.08);border:1px solid var(--border);border-radius:12px;padding:.6rem 1rem;font-size:.78rem;color:var(--accent);margin-bottom:.8rem">🇰🇷 한국어 가사 감지! 번역 없이 바로 <b>가사 해석</b>으로 넘어갈 수 있어요</div>';
+        renderResult('lyrics',S.track.lyrics);
+        content.innerHTML=notice+content.innerHTML;
+      }else{
+        document.getElementById('btn-trans').disabled=false;
+        document.getElementById('btn-trans').querySelector('.ana-btn-desc').textContent='원문 / 번역 포맷';
+      }
+    }else{
+      showLyricsInput();
+    }
+    return;
+  }
+
+  if(type==='desc'){
+    // 가사를 먼저 확보한다. 잘 안 알려진 곡일수록 모델이 기댈 데가 가사뿐이라,
+    // 없이 물으면 지어내거나 "정보가 없다"로 끝난다. 못 찾으면 그냥 진행한다.
+    if(!S.track.lyrics && !S.track.lyricsSrc){
+      content.innerHTML='<div class="loading"><div class="spin"></div>가사 확인 중...</div>';
+      await fetchLyrics(S.track.artist,S.track.title);
+    }
+    content.innerHTML='<div class="loading"><div class="spin"></div>곡 설명 생성 중...</div>';
+    // 검색 결과에 딸려 온 사실들. 모델이 제목과 가수만 보고 쓰지 않도록 함께 넘긴다.
+    const facts = [
+      S.track.album && `수록 앨범: ${S.track.album}`,
+      S.track.year && `발표: ${S.track.year}년`,
+      S.track.durationMs && `길이: ${fmtMs(S.track.durationMs)}`,
+      S.track.genre && `분류: ${S.track.genre}`,
+    ].filter(Boolean).join(' · ');
+    const lyricsPart = S.track.lyrics
+      ? `\n\n【가사 전문】\n${S.track.lyrics.slice(0,6000)}\n`
+      : '\n\n(가사를 찾지 못했습니다. 가사 인용 없이 설명해주세요.)\n';
+    const prompt=`이 곡을 처음 듣는 사람에게 깊이 있게 소개해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}${facts?`\n(${facts})`:''}${lyricsPart}
+
+【분량과 태도】
+아는 정보가 충분한 곡이면 넉넉하게 써주세요. 여섯 문단이 넘어도 좋습니다.
+정보가 적은 곡이라면 억지로 늘리는 대신, 가사와 사운드처럼 곡 자체를 보고 말할 수
+있는 부분을 깊이 파고들어 채워주세요. 분량을 채우려고 사실을 지어내는 것만은
+절대 하지 마세요. 모르는 것을 모른다고 쓰는 편이 훨씬 낫습니다.
+
+【이렇게 구성해주세요 — 각 항목은 "## 소제목" 형태로】
+
+## 한눈에
+어떤 곡인지 한 문단으로. 처음 듣는 사람이 무엇을 기대하면 되는지.
+
+## 사운드
+장르와 질감, 중심이 되는 악기, 리듬과 템포감, 보컬의 톤과 창법.
+조성(장조인지 단조인지, 으뜸음이 무엇인지)은 반드시 하나를 골라 적고, 그 조성이
+곡의 분위기에 어떻게 작용하는지도 함께 짚어주세요.
+곡이 진행되며 분위기가 어떻게 달라지는지(도입 → 후렴 → 후반부).
+
+## 가사가 하는 이야기
+화자가 누구이고 어떤 상황인지, 전체를 관통하는 정서.
+가사가 주어졌다면 인상적인 구절을 2~4개 원문 그대로 인용하고("..." 형태),
+각각이 무슨 뜻이고 왜 인상적인지 풀어주세요. 이게 이 설명의 핵심입니다.
+
+## 이렇게 들어보세요
+구체적으로 어디에 귀를 기울이면 좋은지. 특정 악기가 들어오는 순간, 목소리가
+갈라지거나 힘이 실리는 지점, 후렴에서 바뀌는 화음, 가사의 반전 같은 것들.
+
+## 맥락
+만들어진 배경, 앨범 안에서의 위치, 아티스트의 어느 시기인지, 발표 당시 반응.
+— 아는 만큼만 쓰고, 아는 게 없으면 이 항목을 통째로 빼세요.
+
+## 이런 걸 좋아한다면
+비슷한 결의 곡이나 아티스트를 두세 개, 왜 비슷한지 한 줄씩 곁들여서.
+
+【지켜야 할 것】
+- 조성은 "사운드"에서 반드시 구체적인 값 하나를 적으세요. 확실히 모르겠으면
+  빼거나 "모르겠습니다"로 끝내지 말고, 장르·분위기·창법·
+  비슷한 곡에서 미루어 가장 그럴듯한 조성 하나를 반드시 골라 던지세요.
+  다만 확신의 정도는 항상 구분해 표시하세요 —
+  확실하면 "라단조(D minor)"처럼 그대로 쓰고,
+  애매하면 "추정 라단조(D minor) — 단조 특유의 어두운 색채와 창법으로 미루어 본
+  값이라 확실하지는 않습니다"처럼 추정임을 밝히면 됩니다.
+- BPM과 코드 진행은 확실할 때만 쓰고, 아니면 아예 언급하지 마세요.
+  "아마 ~일 것이다" 식의 추측은 쓰지 마세요.
+- 유명하지 않은 곡에 "음악사적 의의"나 "명곡" 같은 말을 억지로 붙이지 마세요.
+  평범한 곡은 평범한 곡으로 설명하면 됩니다.
+- 표시된 가수가 원곡자가 아닐 수 있습니다(커버·리메이크). 그럴 때 원곡 이야기를
+  이 가수의 것처럼 쓰면 안 됩니다. 원곡이 누구 것인지 먼저 밝히고, 이 가수의 버전에
+  대해 아는 만큼만 쓰세요.
+- 가사를 인용할 때는 위에 주어진 원문을 그대로 옮기세요. 기억으로 바꿔 쓰지 마세요.
+- 인사말이나 "설명해 드리겠습니다" 같은 머리말 없이 "## 한눈에"부터 바로 시작하세요.
+
+한국어로 써주세요.`;
+    try{const r=await runSection('desc',prompt,'complex');S.cache.desc=r;}
+    catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
+    return;
+  }
+
+  if(!S.track.lyrics){
+    content.innerHTML='<div class="loading"><div class="spin"></div>가사 불러오는 중...</div>';
+    await fetchLyrics(S.track.artist,S.track.title);
+    if(!S.track.lyrics){content.innerHTML='<div class="empty"><div class="ico">😢</div>가사를 찾을 수 없습니다</div>';return;}
+  }
+
+  if(type==='trans'){
+    content.innerHTML='<div class="loading"><div class="spin"></div>가사 번역 중...</div>';
+    const prompt=`다음 곡의 가사를 한 줄씩 번역해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【출력 규칙】
+- 원문 가사 한 줄, 바로 아래 줄에 한국어 번역
+- 단, 원문이 이미 한국어인 경우 번역 없이 원문을 그대로 두 번 반복 (원문/원문 형식 유지)
+- 빈 줄(섹션 구분)은 그대로 유지
+- 번역문만 출력 (제목, 설명, 머리말 없이 바로 시작)
+- 자연스럽고 감성을 살린 번역
+
+【가사 전문 - 이 가사를 정확히 사용하세요】
+${S.track.lyrics}`;
+    try{
+      const r=await runSection('trans',prompt);
+      S.cache.trans=r;
+      renderResult('trans',r);
+      document.getElementById('btn-interp').disabled=false;
+      document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='원문 / 번역 / 해석';
+    }catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
+    return;
+  }
+
+  if(type==='interp'){
+    content.innerHTML='<div class="loading"><div class="spin"></div>가사 해석 중...</div>';
+    const korean=isKorean(S.track.lyrics);
+    const prompt=korean?
+`다음 한국어 곡의 가사를 한 줄씩 깊이 있게 해석해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【출력 규칙】
+- 원본 가사 한 줄
+- 바로 아래: "💬 " 로 시작하는 해석 (그 줄의 의미, 뉘앙스, 상징, 감정, 문화적 맥락 등을 풍부하게)
+- 빈 줄(섹션 구분)은 그대로 유지
+- 머리말 없이 바로 시작
+
+형식 예시:
+그대 떠난 자리에 눈이 내려
+💬 떠난 사람이 남긴 빈자리를 눈이 채우는 이미지로, 상실감과 쓸쓸함을 자연 현상에 빗대어 표현...
+
+【원본 가사 - 정확히 이 가사를 사용하세요】
+${S.track.lyrics}`
+:
+`다음 곡의 가사를 한 줄씩 깊이 있게 해석해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【출력 규칙】
+- 원본 가사 한 줄
+- 바로 아래: 한국어 번역
+- 바로 아래: "💬 " 로 시작하는 해석 (그 줄의 의미, 뉘앙스, 상징, 감정, 문화적 맥락 등을 풍부하게)
+- 빈 줄(섹션 구분)은 그대로 유지
+- 머리말 없이 바로 시작
+
+형식 예시:
+I saw the lights go out
+나는 불이 꺼지는 것을 보았다
+💬 단순한 물리적 묘사처럼 보이지만, 희망이나 관계의 종말을 암시하는 상징적 표현...
+
+【원본 가사 - 정확히 이 가사를 사용하세요】
+${S.track.lyrics}
+
+【참고용 번역】
+${S.cache.trans||''}`;
+    try{const r=await runSection('interp',prompt);S.cache.interp=r;}
+    catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
+    return;
+  }
+}
+
+// 분석 결과를 글자가 오는 대로 채운다.
+async function runSection(type, prompt, tier){
+  const full=await askClaude(prompt, t=>renderResult(type,t), {tier});
+  renderResult(type,full);
+  return full;
+}
+
+function renderResult(type,text){
+  const content=document.getElementById('ana-content');
+  if(type==='lyrics'){
+    const src=S.track.lyricsSrc||'알 수 없음';
+    content.innerHTML=`<div class="result-box">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem">
+        <div class="result-box-title" style="margin-bottom:0">🎤 가사</div>
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span style="font-size:.68rem;color:var(--muted);background:var(--bg3);padding:.2rem .55rem;border-radius:6px;border:1px solid rgba(255,255,255,.06)">출처: ${esc(src)}</span>
+          <button onclick="editLyrics()" style="background:rgba(200,255,0,.1);border:1px solid var(--border);border-radius:8px;padding:.25rem .55rem;color:var(--accent);font-size:.75rem;cursor:pointer" title="가사 수정">✏️</button>
+        </div>
+      </div>
+      <div class="lyric-plain" id="lyrics-display">${esc(text)}</div>
+    </div>`;
+    return;
+  }
+  if(type==='desc'){
+    content.innerHTML=`<div class="result-box"><div class="result-box-title">📖 곡 설명</div><div class="result-text">${mdToHtml(text)}</div></div>`;
+    return;
+  }
+  if(type==='trans'){
+    const lines=text.split('\n');
+    let html='<div class="result-box"><div class="result-box-title">🌐 가사 번역</div>';
+    let i=0;
+    while(i<lines.length){
+      const l=lines[i]||'';
+      if(!l.trim()){html+='<div style="height:.5rem"></div>';i++;continue;}
+      const n=lines[i+1]||'';
+      if(n.trim()&&!n.startsWith('💬')){
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l)}</div><div class="lyric-ko">${esc(n)}</div></div>`;i+=2;
+      }else{
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l)}</div></div>`;i++;
+      }
+    }
+    content.innerHTML=html+'</div>';return;
+  }
+  if(type==='interp'){
+    const lines=text.split('\n');
+    let html='<div class="result-box"><div class="result-box-title">🔍 가사 해석</div>';
+    let i=0;
+    while(i<lines.length){
+      const l0=lines[i]||'';
+      if(!l0.trim()){html+='<div style="height:.6rem"></div>';i++;continue;}
+      if(l0.startsWith('💬')){html+=`<div class="lyric-explain">${esc(l0)}</div>`;i++;continue;}
+      const l1=lines[i+1]||'';
+      const l2=lines[i+2]||'';
+      if(l1.trim()&&!l1.startsWith('💬')&&l2.startsWith('💬')){
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l0)}</div><div class="lyric-ko">${esc(l1)}</div><div class="lyric-explain">${esc(l2)}</div></div>`;i+=3;
+      }else if(l1.startsWith('💬')){
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l0)}</div><div class="lyric-explain">${esc(l1)}</div></div>`;i+=2;
+      }else{
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l0)}</div></div>`;i++;
+      }
+    }
+    content.innerHTML=html+'</div>';return;
+  }
+}
+
+// ── 파트별 난이도 ──
+// 곡을 새로 고르면 분석 결과를 지우고 시작 버튼만 보여 준다. 자동으로 돌리면
+// 탭만 열어도 무료 한도가 닳으므로 누를 때만 부른다.
+// 세 기능을 고르는 버튼. 결과를 그린 뒤에도 다시 붙여야 다른 기능으로 넘어갈 수 있다.
+function toolRow(){
+  return `<div class="tool-row">
+    <button class="diff-go" onclick="doDifficulty()">🎚️ 파트별 난이도</button>
+    <button class="diff-go" onclick="doIntro()">🎧 입문 가이드</button>
+    <button class="diff-go" onclick="doIdioms()">📖 표현 풀이</button>
+  </div>`;
+}
+
+function resetDifficulty(){
+  const area=document.getElementById('chat-area');
+  if(!area) return;
+  S.cache.difficulty='';
+  area.innerHTML=S.track
+    ? `<div class="bbl a">🎵 <b>${esc(S.track.title)}</b> — ${esc(S.track.artist)}<br>
+         아래에서 골라보세요. 결과를 보고 이어서 질문해도 됩니다.</div>${toolRow()}`
+    : '<div class="bbl a">검색 탭에서 곡을 먼저 선택해주세요 🎵</div>';
+}
+
+// 분석 결과를 말풍선에 흘려 넣는다. 세 기능이 같은 자리를 쓰므로 하나로 묶었다.
+async function runTool(prompt, tier, cacheKey, extraHtml=''){
+  const area=document.getElementById('chat-area');
+  // 다 그린 뒤에는 기능 버튼을 다시 붙인다. 이게 없으면 한 기능을 실행한 순간
+  // 버튼이 지워져서 곡을 다시 고르기 전에는 나머지 두 기능으로 못 넘어간다.
+  const paint=(text,done)=>{
+    area.innerHTML=`<div class="bbl a">${mdToHtml(text)}</div>`+(done?extraHtml+toolRow():'');
+    area.scrollTop=area.scrollHeight;
+  };
+  area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
+  try{
+    const full=await askClaude(prompt, t=>paint(t,false), {tier});
+    paint(full,true);
+    if(cacheKey) S.cache[cacheKey]=full;
+  }catch(e){
+    area.innerHTML=`<div class="bbl a">오류: ${esc(e.message)}</div>
+      <button class="diff-go" onclick="resetDifficulty()">돌아가기</button>`;
+  }
+}
+
+// ── 입문 가이드 ──
+// 추천 곡 목록은 Deezer에서 실제로 받아온다. 모델 기억에 맡기면 존재하지 않는 곡을
+// 지어내기 때문에, 목록은 데이터로 주고 모델은 순서와 이유만 붙이게 한다.
+async function doIntro(){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const area=document.getElementById('chat-area');
+  area.innerHTML='<div class="bbl a">대표곡 목록을 받아오는 중...</div>';
+  let top=null;
+  try{
+    top=await api(`/artist-top?name=${encodeURIComponent(S.track.artist)}`);
+  }catch{ /* 아래에서 안내한다 */ }
+  if(!top?.tracks?.length){
+    area.innerHTML=`<div class="bbl a">이 가수의 대표곡 목록을 찾지 못했습니다. 없는 곡을 지어내지 않으려면 목록이 있어야 해서 여기서 멈춥니다.</div>
+      <button class="diff-go" onclick="resetDifficulty()">돌아가기</button>`;
+    return;
+  }
+  const list=top.tracks.slice(0,20).map((t,i)=>`${i+1}. ${t.title}${t.album?` (${t.album})`:''}`).join('\n');
+  // 목록의 곡을 눌러 바로 검색할 수 있게 한다.
+  const chips=`<div class="tool-row">`+top.tracks.slice(0,8)
+    // esc를 거쳐야 한다. 따옴표만 바꾸면 제목 안의 &가 그대로 남아, "&#34;" 같은
+    // 문자열이 속성 안에서 진짜 따옴표로 풀리면서 스크립트가 비집고 들어올 수 있다.
+    .map(t=>`<button class="chip" onclick="searchFor(${esc(JSON.stringify(t.title))})">${esc(t.title)}</button>`).join('')
+    +`</div>`;
+
+  const prompt=`${S.track.artist}를 처음 듣는 사람을 위한 입문 가이드를 써주세요.
+지금 이 사람은 "${S.track.title}"을 듣고 이 가수에게 관심이 생긴 참입니다.
+
+【이 가수의 실제 인기곡 (재생 순)】
+${list}
+
+【반드시 지킬 것】
+- 위 목록에 있는 곡만 다루세요. 목록에 없는 곡은 제목조차 언급하지 마세요.
+  기억나는 다른 곡이 있어도 쓰면 안 됩니다.
+- 곡 제목은 위에 적힌 그대로 옮기세요.
+
+【이렇게 써주세요】
+
+## 어떤 가수인가
+음악적으로 어떤 특징이 있는지, 무엇으로 알려졌는지 한 문단.
+확실하지 않으면 목록에 보이는 곡들에서 읽어낼 수 있는 만큼만 쓰세요.
+
+## 이 순서로 들어보세요
+목록에서 4~5곡을 골라 들을 순서를 정하고, 각 곡마다 왜 이 순서인지,
+어떤 매력을 기대하면 되는지 두세 줄씩. "${S.track.title}"을 좋아했다면
+어느 곡으로 넘어가는 게 자연스러운지도 짚어주세요.
+
+## 더 깊이 가려면
+위 목록 중 대중적이지는 않지만 이 가수를 이해하는 데 좋은 곡이 있다면 한두 곡.
+없으면 이 항목은 빼세요.
+
+인사말 없이 "## 어떤 가수인가"부터 바로 시작하고, 한국어로 써주세요.`;
+
+  await runTool(prompt,'default','intro',chips);
+}
+
+// 검색 탭으로 넘어가 그 곡을 바로 찾아 준다.
+function searchFor(title){
+  document.getElementById('sq').value=`${title} ${S.track?.artist||''}`.trim();
+  setType('song');
+  goTab('s');
+  doSearch();
+}
+
+// ── 표현 풀이 ──
+async function doIdioms(){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const area=document.getElementById('chat-area');
+  if(!S.track.lyrics && !S.track.lyricsSrc){
+    area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
+    await fetchLyrics(S.track.artist,S.track.title);
+  }
+  if(!S.track.lyrics){
+    area.innerHTML=`<div class="bbl a">가사를 찾지 못해 표현을 뽑을 수 없습니다. 분석 탭에서 가사를 직접 붙여 넣으면 여기서도 쓸 수 있습니다.</div>
+      <button class="diff-go" onclick="resetDifficulty()">돌아가기</button>`;
+    return;
+  }
+  const prompt=`아래 가사에서 그냥 읽어서는 뜻이 잘 안 잡히는 표현을 뽑아 풀어주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【가사 전문】
+${S.track.lyrics.slice(0,6000)}
+
+【무엇을 뽑을지】
+- 관용구와 숙어 (사전적 의미와 실제 쓰임이 다른 것)
+- 슬랭과 구어체 축약
+- 비유와 상징, 말장난
+- 문화적 배경을 알아야 이해되는 대목 (지명, 인물, 관습, 다른 작품 인용)
+- 한국어 가사라면 시적 표현, 도치, 중의적으로 읽히는 구절
+
+【이렇게 써주세요】
+표현마다 이렇게 세 줄로:
+
+## "가사 원문 그대로"
+**직역**: 글자 그대로의 뜻
+**실제 의미**: 이 가사에서 무엇을 말하는지, 왜 이렇게 표현했는지
+
+6~10개 정도 뽑되, 뽑을 게 적으면 억지로 늘리지 말고 있는 만큼만 쓰세요.
+평범해서 설명이 필요 없는 구절은 넣지 마세요.
+
+【지켜야 할 것】
+- 반드시 위 가사에 실제로 있는 구절만 인용하세요. 기억으로 바꿔 쓰지 마세요.
+- 확실하지 않은 유래나 뒷이야기는 단정하지 말고 "~로 보입니다"라고 쓰세요.
+- 인사말 없이 첫 표현부터 바로 시작하세요.
+
+한국어로 써주세요.`;
+
+  await runTool(prompt,'default','idioms');
+}
+
+async function doDifficulty(){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const area=document.getElementById('chat-area');
+  // 가사가 있으면 구성(절·후렴·브릿지)을 짚을 수 있어 훨씬 구체적인 답이 나온다.
+  if(!S.track.lyrics && !S.track.lyricsSrc){
+    area.innerHTML='<div class="bbl a"><div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div></div>';
+    await fetchLyrics(S.track.artist,S.track.title);
+  }
+  const facts=[
+    S.track.album&&`수록 앨범: ${S.track.album}`,
+    S.track.year&&`발표: ${S.track.year}년`,
+    S.track.durationMs&&`길이: ${fmtMs(S.track.durationMs)}`,
+    S.track.genre&&`분류: ${S.track.genre}`,
+  ].filter(Boolean).join(' · ');
+  const lyricsPart=S.track.lyrics?`\n\n【가사 전문】\n${S.track.lyrics.slice(0,6000)}\n`:'\n\n(가사를 찾지 못했습니다.)\n';
+
+  const prompt=`이 곡을 직접 연주하거나 불러보려는 사람에게, 파트별로 얼마나 어려운지 알려주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}${facts?`\n(${facts})`:''}${lyricsPart}
+
+【먼저 편성을 파악하세요】
+이 곡에 실제로 들어가는 파트가 무엇인지 먼저 판단하고, 그 파트만 다루세요.
+피아노 발라드에 드럼 항목을 만들거나, 밴드곡에 없는 관악기를 지어내지 마세요.
+편성이 확실하지 않으면 "편성은 확실하지 않지만 일반적으로 이런 구성입니다"라고
+밝히고 진행하세요.
+
+【이렇게 써주세요】
+
+## 한눈에
+전체적으로 어느 정도 난이도인지, 어떤 편성의 곡인지 한 문단으로.
+그리고 이 곡에서 가장 까다로운 파트가 무엇인지 짚어주세요.
+
+그다음 파트마다 "## 파트이름 ★★★☆☆" 형태로 소제목을 달고(별 다섯 개 중 채움),
+아래 내용을 문장으로 풀어 쓰세요.
+
+【별점은 이 절대 기준으로 매기세요】
+기준은 딱 하나입니다 — "취미로 하는 보통 사람이 원곡 키 그대로, 곡 전체를
+끝까지 해낼 수 있는가". 장르 안에서의 상대평가나 "이 정도면 무난하다" 식의
+인상 평가를 하지 마세요.
+- ★☆☆☆☆ 거의 누구나 된다. 음역 한 옥타브 안, 특별한 기교 없음.
+- ★★☆☆☆ 보통 사람의 음역·기량 안에서 조금만 연습하면 된다.
+- ★★★☆☆ 연습이 꽤 필요하다. 고음이 반복되거나 리듬이 까다롭다.
+- ★★★★☆ 훈련받은 사람 영역. 음역이 넓고 발성 전환·지구력이 요구된다.
+- ★★★★★ 대부분의 사람은 원곡 키로 완창하지 못한다. 극단적인 고음이나
+  지속되는 팔세토, 두 옥타브를 넘나드는 음역, 특수 창법이 곡 내내 이어진다.
+  프로 보컬이 아니면 사실상 불가능한 곡이 여기 해당합니다.
+
+누가 들어도 어려운 곡을 점잖게 4개로 깎지 마세요. 위 정의에 맞으면 5개를
+그대로 주세요. 반대로 쉬운 곡에 인심 쓰듯 별을 더 얹지도 마세요.
+그리고 별점을 준 근거를 한 줄로 밝히세요(예: "후렴 내내 A4~C5 팔세토가
+이어져 원곡 키로는 대부분 못 따라간다").
+
+보컬이 있으면 반드시 다음을 다루세요:
+- 음역: 최저음과 최고음을 반드시 음이름으로 적으세요(예: "G3 ~ C#5, 원곡 키 기준").
+  그리고 그 폭이 얼마나 넓은지 한 줄로 덧붙이세요.
+- 고음 구간: 높은 음이 어디에 나오고 얼마나 오래 머무는지
+- 호흡: 한 호흡에 밀어붙여야 하는 긴 프레이즈가 있는지
+- 발성 전환: 진성과 가성을 오가는 구간, 믹스보이스가 필요한 대목
+- 성량과 지구력: 계속 강하게 질러야 하는지, 곡 후반에 체력이 남는지
+- 리듬과 음정: 박자가 까다롭거나 음정이 잡기 어려운 부분
+
+악기 파트(기타·베이스·드럼·건반·현악·관악 등)는 그 악기에 맞게:
+- 어떤 주법과 테크닉이 필요한지
+- 속도와 리듬이 얼마나 빡빡한지
+- 코드나 운지가 까다로운 부분
+- 초보자가 걸려 넘어질 만한 지점
+
+각 파트 끝에는 "가장 어려운 구간"을 한 줄로 짚어주세요. 가사가 주어졌다면
+어느 대목인지 가사를 인용해 알려주면 좋습니다.
+
+## 연습한다면
+어디부터 손대는 게 좋을지, 쉽게 가려면 무엇을 바꾸면 되는지(키 조절, 템포 낮추기,
+간소화된 코드 등) 두세 줄.
+
+【지켜야 할 것】
+- 보컬 음역(최저음과 최고음)은 무슨 일이 있어도 음이름 숫자로 적으세요.
+  확실히 아는 값이 있으면 그 값을 쓰고, 모르면 빼지 말고 가창 스타일·장르·비슷한 곡에서 미루어
+  반드시 추정치 하나를 적으세요 — 예: "추정 A3 ~ D5 (가창 스타일과 장르로
+  미루어 본 값)". "높은 편입니다" 같은 말로 얼버무리는 것만은 안 됩니다.
+  확인된 값인지 추정인지는 항상 구분해 표시하세요.
+- 조성(원곡 키)도 같은 방식으로 반드시 하나 적으세요. 확실하면 그대로,
+  아니면 "추정"이라고 밝히고 적으면 됩니다.
+- BPM은 확실히 알 때만 적고, 아니면 생략하세요.
+- 아는 게 적은 곡이라도 음역·조성만은 위 방식대로 값을 내고, 나머지는
+  가사 구조와 장르에서 읽어낼 수 있는 만큼만 쓰면서 모르는 부분은 밝히세요.
+- 인사말 없이 "## 한눈에"부터 바로 시작하세요.
+
+한국어로 써주세요.`;
+
+  await runTool(prompt,'complex','difficulty');
+}
+
+// ── CHAT ──
+async function sendChat(){
+  if(!S.track){alert('검색 탭에서 곡을 먼저 선택해주세요!');goTab('s');return;}
+  const inp=document.getElementById('chat-input');
+  const msg=inp.value.trim();if(!msg)return;
+  inp.value='';
+  const area=document.getElementById('chat-area');
+  addBbl(area,msg,'u');
+  const turns=S.chatHist.slice(-14);
+  S.chatHist.push({role:'user',content:msg});
+  const ld=document.createElement('div');ld.className='bbl a';
+  ld.innerHTML='<div class="spin" style="width:14px;height:14px;border-width:2px;margin:0 auto"></div>';
+  area.appendChild(ld);area.scrollTop=area.scrollHeight;
+  try{
+    // 난이도 분석을 이미 받았다면 함께 넘긴다. 사용자는 보통 그 내용을 이어서 묻는다.
+    const ctx=`현재 곡: ${S.track.title} — ${S.track.artist}\n`
+      +`${S.track.lyrics?'가사:\n'+S.track.lyrics.substring(0,3000)+'\n':''}`
+      +`${S.cache.difficulty?'\n앞서 파트별 난이도를 이렇게 정리했습니다:\n'+S.cache.difficulty.substring(0,2500):''}`
+      +`${S.cache.intro?'\n앞서 이 가수 입문 가이드를 이렇게 썼습니다:\n'+S.cache.intro.substring(0,1500):''}`
+      +`${S.cache.idioms?'\n앞서 가사 표현을 이렇게 풀었습니다:\n'+S.cache.idioms.substring(0,1500):''}`;
+    const sysMsg=`당신은 음악을 잘 아는 조력자입니다. 지금 다음 곡에 대해 이야기하는 중입니다:\n${ctx}\n\n아는 것과 모르는 것을 분명히 구분하고, 확실하지 않으면 아는 척하지 말고 모른다고 말하세요. 한국어로 답변하세요.`;
+    // 답이 오는 대로 말풍선을 채운다. 첫 글자가 도착하면 로딩 표시를 치운다.
+    const bbl=document.createElement('div');bbl.className='bbl a';
+    const show=t=>{
+      if(ld.parentNode){area.removeChild(ld);area.appendChild(bbl);}
+      bbl.innerHTML=mdToHtml(t);area.scrollTop=area.scrollHeight;
+    };
+    const reply=await askClaude(msg,show,{turns,sys:sysMsg,cache:false});
+    show(reply);
+    S.chatHist.push({role:'assistant',content:reply});
+    if(S.chatHist.length>40) S.chatHist.splice(0, S.chatHist.length-40);
+  }catch(e){
+    if(ld.parentNode) area.removeChild(ld);
+    addBbl(area,'오류: '+e.message,'a');
+    // 답을 못 받았으면 방금 넣은 사용자 턴을 되돌린다.
+    S.chatHist.pop();
+  }
+}
+function addBbl(c,t,r){
+  const d=document.createElement('div');d.className='bbl '+r;
+  // AI 답변만 서식을 살린다. 사용자가 친 글은 손대지 않는다.
+  if(r==='a') d.innerHTML=mdToHtml(t); else d.textContent=t;
+  c.appendChild(d);c.scrollTop=c.scrollHeight;
+}
+
+// ── Claude (아티팩트의 sample 기능) ──
+// 내 claude.ai 구독 사용량으로 돈다. 무료 한도·호출 간격·검색 그라운딩 회피 코드가 필요 없다.
+let sampleP=null;
+function claudeApi(){ return sampleP||=(window.claude?.use('sample')||Promise.resolve(null)); }
+
+const SAMPLE_FIX={
+  not_granted:'이 페이지의 Claude 사용이 허용되지 않았습니다. 페이지 권한 메뉴에서 켜주세요.',
+  rate_limited:'Claude 사용량 한도에 걸렸습니다. 잠시 후 다시 시도해주세요.',
+};
+
+const DEFAULT_SYS='당신은 음악을 잘 아는 조력자입니다. 곡 소개, 가사 번역과 해석을 돕습니다. 아는 것과 모르는 것을 분명히 구분하고, 확실하지 않으면 아는 척하지 말고 모른다고 말하세요. 한국어로 답변하세요.';
+
+// onChunk(지금까지 쓴 전체 글)로 흘려 보낸다. system 역할이 없어서 지침은 맨 앞 user 턴으로 넣는다.
+// tier: 'default' 또는 'complex'(사실 지식이 많이 필요한 곡 설명·난이도).
+async function askClaude(prompt, onChunk, {turns=[], sys=DEFAULT_SYS, tier='default', cache}={}){
+  const sample=await claudeApi();
+  if(!sample) throw new Error('이 화면에서는 Claude를 쓸 수 없습니다 (claude.ai에서 열어주세요).');
+  try{
+    const {text}=await sample([{role:'user',content:sys},...turns,{role:'user',content:prompt}],
+      {modelTier:tier, cache, onText:({text})=>onChunk?.(text)});
+    if(!text.trim()) throw new Error('빈 응답을 받았습니다. 다시 시도해주세요.');
+    return text;
+  }catch(e){
+    if(!e?.code) throw e;
+    throw new Error(SAMPLE_FIX[e.code]||`Claude 오류 (${e.code}): ${e.message}`);
+  }
+}
+
+function fmtMs(ms){const s=Math.floor(ms/1000);return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// 모델은 마크다운으로 답하는데 그대로 내보내면 ###과 **가 글자로 보인다. 먼저 전부
+// 이스케이프해서 원본 HTML을 무력화한 다음, 우리가 아는 서식만 되살린다.
+function mdToHtml(s){
+  return esc(s)
+    .replace(/^\s*#{1,6}\s*(.+)$/gm, '<b class="md-h">$1</b>')
+    // 구분선을 먼저 처리한다. 목록 변환보다 뒤에 두면 "---"가 "· --"가 되어 버린다.
+    .replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, '<span class="md-hr"></span>')
+    // esc를 거치면 인용 부호 ">"는 "&gt;"가 되어 있다. 들여쓰기로 바꿔 준다.
+    .replace(/^\s*&gt;\s?/gm, '　　')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/^\s*[-*]\s+/gm, '· ');
+}
+</script>
+</body>
+</html>

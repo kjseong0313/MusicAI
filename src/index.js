@@ -810,7 +810,75 @@ async function deezerSearch(q, entity, limit, debug) {
   throw new Error(`Deezer: ${lastRaw}`);
 }
 
-export default {
+// ── MCP 입구 ──
+// claude.ai 아티팩트는 외부로 fetch를 못 한다. 대신 사용자가 claude.ai에 등록한
+// 커넥터(MCP)는 부를 수 있어서, 이 Worker를 커넥터로 등록해 GET 라우트를 그대로 빌려준다.
+// 세션 없는 Streamable HTTP: POST 한 번에 JSON-RPC 하나, JSON으로 답한다.
+const MCP_PATHS = ['/itunes', '/itunes-lookup', '/artist-top', '/lyrics',
+  '/deezer-artist-albums', '/deezer-album-tracks', '/mb-artist-albums', '/mb-album-tracks'];
+const MCP_TOOL = {
+  name: 'get',
+  description: 'MusicAI Worker의 GET 라우트를 호출해 JSON 본문을 돌려준다. path 예: "/itunes?q=billie%20jean&entity=song&limit=50", "/lyrics?artist=IU&title=Palette"',
+  inputSchema: {
+    type: 'object',
+    properties: { path: { type: 'string', description: `다음 중 하나로 시작하는 경로+쿼리: ${MCP_PATHS.join(', ')}` } },
+    required: ['path'],
+  },
+  annotations: { readOnlyHint: true },
+};
+
+async function handleMcp(request, env, ctx) {
+  const json = (obj, status = 200) => new Response(obj === null ? null : JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json' }
+  });
+  if (request.method !== 'POST') return json({ error: 'POST only' }, 405);
+  let msg;
+  try { msg = await request.json(); } catch { return json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, 400); }
+  const { id, method, params } = msg;
+  if (id === undefined) return new Response(null, { status: 202 });   // 알림(notifications/*)
+  const ok = result => json({ jsonrpc: '2.0', id, result });
+
+  if (method === 'initialize') {
+    return ok({
+      protocolVersion: params?.protocolVersion || '2025-06-18',
+      capabilities: { tools: {} },
+      serverInfo: { name: 'musicai', version: '1.0.0' },
+    });
+  }
+  if (method === 'ping') return ok({});
+  if (method === 'tools/list') return ok({ tools: [MCP_TOOL] });
+  if (method === 'tools/call') {
+    const path = String(params?.arguments?.path || '');
+    const route = path.split('?')[0];
+    if (params?.name !== 'get' || !MCP_PATHS.includes(route)) {
+      return ok({ content: [{ type: 'text', text: `허용되지 않은 경로: ${route}` }], isError: true });
+    }
+    const origin = new URL(request.url).origin;
+    const res = await worker.fetch(new Request(origin + path), env, ctx);
+    const text = await res.text();
+    return ok({ content: [{ type: 'text', text }], isError: !res.ok });
+  }
+  return json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown method: ${method}` } });
+}
+
+// 가사: lyrics.ovh → lrclib 순서. 예전에는 브라우저가 직접 불렀다.
+async function fetchLyrics(artist, title) {
+  try {
+    const res = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+    const d = await res.json();
+    if (d.lyrics?.trim()) return { lyrics: d.lyrics.trim(), source: 'lyrics.ovh' };
+  } catch {}
+  try {
+    const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(artist + ' ' + title)}`,
+      { headers: { 'User-Agent': 'MusicAI (https://github.com/kjseong0313/MusicAI)' } });
+    const d = await res.json();
+    const match = Array.isArray(d) && d.find(x => x.plainLyrics?.trim());
+    if (match) return { lyrics: match.plainLyrics.trim(), source: 'lrclib.net' };
+  } catch {}
+  return null;
+}
+
+const worker = {
   async fetch(request, env, ctx) {
     // CORS 허용
     if (request.method === 'OPTIONS') {
@@ -825,6 +893,33 @@ export default {
 
     const url = new URL(request.url);
     const cache = caches.default;
+
+    if (url.pathname === '/mcp') return handleMcp(request, env, ctx);
+
+    // ── 가사 (GET) ──
+    if (url.pathname === '/lyrics') {
+      const artist = (url.searchParams.get('artist') || '').trim();
+      const title = (url.searchParams.get('title') || '').trim();
+      if (!artist || !title) {
+        return new Response(JSON.stringify({ error: 'artist와 title이 필요합니다' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      const cacheKey = new Request(url.toString(), request);
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
+      const data = await fetchLyrics(artist, title);
+      const response = new Response(JSON.stringify(data || { lyrics: null }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=86400'
+        }
+      });
+      if (data) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      return response;
+    }
 
     // ── 사용 가능한 Gemini 모델 목록 (GET) ──
     // 모델이 늘거나 사라져도 앱을 고치지 않도록 Google에서 직접 받아온다.
@@ -1182,3 +1277,4 @@ export default {
     });
   }
 };
+export default worker;
