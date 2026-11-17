@@ -26,7 +26,7 @@ until curl -s "https://kjseong0313.github.io/MusicAI/index.html?cb=$(date +%s%N)
 
 `wrangler.jsonc`에 `placement: smart`가 켜져 있다. 끄면 안 된다 — 아래 참고.
 
-### Claude 아티팩트판 (`claude.html`)
+### MusicClaude — Claude 아티팩트판 (`musicclaude.html`)
 
 같은 앱을 claude.ai 아티팩트로 올린 판. 분석 엔진이 Gemini 무료 대신 Claude(`sample`,
 내 구독 사용량)다. 아티팩트는 외부 fetch가 막혀 있어서, Worker를 claude.ai 커스텀
