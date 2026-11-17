@@ -84,6 +84,10 @@ html,body{height:100%}
 .result-text{font-size:.9rem;line-height:1.8;color:#ddd;white-space:pre-wrap}
 .md-h{display:inline-block;color:var(--accent);font-size:.95rem;margin-top:.4rem}
 .md-hr{display:block;height:1px;background:var(--border);margin:.7rem 0}
+.lyric-line{margin-bottom:.8rem;padding-bottom:.8rem;border-bottom:1px solid rgba(255,255,255,.05)}
+.lyric-line:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.lyric-orig{font-size:.9rem;color:#ddd;line-height:1.6}
+.lyric-ko{font-size:.85rem;color:#a78bfa;line-height:1.6;margin-top:.2rem}
 .lyric-plain{font-size:.9rem;color:#ddd;line-height:2.1;white-space:pre-line}
 
 /* CHAT */
@@ -182,6 +186,11 @@ html,body{height:100%}
         <div class="ana-btn-label">가사</div>
         <div class="ana-btn-desc">원문 가사</div>
       </button>
+      <button class="ana-btn" id="btn-trans" onclick="doSection('trans')" disabled>
+        <div class="ana-btn-icon">🌐</div>
+        <div class="ana-btn-label">가사 번역</div>
+        <div class="ana-btn-desc">가사 먼저 필요</div>
+      </button>
       <button class="ana-btn" id="btn-interp" onclick="doSection('interp')" disabled>
         <div class="ana-btn-icon">🔍</div>
         <div class="ana-btn-label">가사 해석</div>
@@ -246,6 +255,23 @@ async function api(path){
     throw new Error(MCP_FIX[e.code]||`커넥터 오류 (${e.code}): ${e.message}`);
   }
   return r.payload;
+}
+
+// 가사 줄 번역만 Gemini(Worker의 `gemini` 도구)에 맡긴다. 스트리밍은 없다.
+async function askGemini(prompt){
+  const m=await mcp();
+  if(!m) throw new Error('이 화면에서는 커넥터를 쓸 수 없습니다 (claude.ai에서 열어주세요).');
+  try{
+    const r=await m.callTool(CONNECTOR,'gemini',{prompt,system:'당신은 노래 가사 번역가입니다. 한국어로 자연스럽게 옮깁니다.'});
+    return r.content?.find(c=>c.type==='text')?.text||'';
+  }catch(e){
+    if(e.code==='tool_error'){
+      const t=e.result?.content?.[0]?.text||e.message;
+      let msg=t; try{ msg=JSON.parse(t).error||t; }catch{}
+      throw new Error(msg);
+    }
+    throw new Error(MCP_FIX[e.code]||`커넥터 오류 (${e.code}): ${e.message}`);
+  }
 }
 
 // Worker가 iTunes → Deezer → MusicBrainz 순으로 알아서 고른다.
@@ -497,8 +523,10 @@ function loadTrack(title,artist,artUrl,meta={}){
     <div class="ana-cover">🎵</div>
     <div class="ana-meta"><div class="ana-title">${esc(title)}</div><div class="ana-artist">${esc(artist)}</div></div>`;
   document.querySelectorAll('.ana-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('btn-interp').disabled=true;
-  document.getElementById('btn-interp').querySelector('.ana-btn-desc').textContent='가사 먼저 필요';
+  for(const id of ['btn-trans','btn-interp']){
+    document.getElementById(id).disabled=true;
+    document.getElementById(id).querySelector('.ana-btn-desc').textContent='가사 먼저 필요';
+  }
   document.getElementById('ana-content').innerHTML='<div class="empty"><div class="ico">👆</div>위 버튼을 눌러 분석을 시작하세요</div>';
   // 대화탭 업데이트. 이 자리를 통째로 다시 그리므로 처음 HTML에 있던 id를 그대로
   // 다시 달아 준다. 빠뜨리면 두 번째 곡부터 여기서 예외가 나고, 그 아래 초기화가
@@ -550,12 +578,14 @@ function savePastedLyrics(){
   enableInterp();
 }
 
-// Claude는 저작권 있는 가사를 줄줄이 옮기거나 통째로 번역하지 않는다. 그래서 번역 단계를
-// 없애고, 원문은 가사 탭이 보여 주고 Claude는 구절별 뜻과 해석만 쓰게 한다.
+// Claude는 저작권 있는 가사를 줄줄이 옮기거나 통째로 번역하지 않는다. 그래서 줄 번역은
+// Worker를 거쳐 Gemini가 하고, Claude는 구절별 뜻과 해석을 쓴다.
 function enableInterp(){
-  const b=document.getElementById('btn-interp');
-  b.disabled=false;
-  b.querySelector('.ana-btn-desc').textContent='구절별 뜻과 해석';
+  for(const [id,desc] of [['btn-trans','원문 / 번역 (Gemini)'],['btn-interp','구절별 뜻과 해석']]){
+    const b=document.getElementById(id);
+    b.disabled=false;
+    b.querySelector('.ana-btn-desc').textContent=desc;
+  }
 }
 
 function editLyrics(){
@@ -685,6 +715,29 @@ async function doSection(type){
     if(!S.track.lyrics){content.innerHTML='<div class="empty"><div class="ico">😢</div>가사를 찾을 수 없습니다</div>';return;}
   }
 
+  if(type==='trans'){
+    content.innerHTML='<div class="loading"><div class="spin"></div>가사 번역 중 (Gemini)...</div>';
+    const prompt=`다음 곡의 가사를 한 줄씩 번역해주세요.
+
+🎵 ${S.track.title} — ${S.track.artist}
+
+【출력 규칙】
+- 원문 가사 한 줄, 바로 아래 줄에 한국어 번역
+- 단, 원문이 이미 한국어인 경우 번역 없이 원문을 그대로 두 번 반복 (원문/원문 형식 유지)
+- 빈 줄(섹션 구분)은 그대로 유지
+- 번역문만 출력 (제목, 설명, 머리말 없이 바로 시작)
+- 자연스럽고 감성을 살린 번역
+
+【가사 전문 - 이 가사를 정확히 사용하세요】
+${S.track.lyrics}`;
+    try{
+      const r=await askGemini(prompt);
+      S.cache.trans=r;
+      renderResult('trans',r);
+    }catch(e){content.innerHTML=`<div class="empty"><div class="ico">⚠️</div>오류: ${esc(e.message)}</div>`;}
+    return;
+  }
+
   if(type==='interp'){
     content.innerHTML='<div class="loading"><div class="spin"></div>가사 해석 중...</div>';
     const prompt=`다음 곡의 가사가 무슨 이야기를 하는지, 구절(절·후렴·브릿지) 단위로 풀어주세요.
@@ -734,6 +787,22 @@ function renderResult(type,text){
   if(type==='desc'){
     content.innerHTML=`<div class="result-box"><div class="result-box-title">📖 곡 설명</div><div class="result-text">${mdToHtml(text)}</div></div>`;
     return;
+  }
+  if(type==='trans'){
+    const lines=text.split('\n');
+    let html='<div class="result-box"><div class="result-box-title">🌐 가사 번역 · Gemini</div>';
+    let i=0;
+    while(i<lines.length){
+      const l=lines[i]||'';
+      if(!l.trim()){html+='<div style="height:.5rem"></div>';i++;continue;}
+      const n=lines[i+1]||'';
+      if(n.trim()){
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l)}</div><div class="lyric-ko">${esc(n)}</div></div>`;i+=2;
+      }else{
+        html+=`<div class="lyric-line"><div class="lyric-orig">${esc(l)}</div></div>`;i++;
+      }
+    }
+    content.innerHTML=html+'</div>';return;
   }
   if(type==='interp'){
     content.innerHTML=`<div class="result-box"><div class="result-box-title">🔍 가사 해석</div><div class="result-text">${mdToHtml(text)}</div></div>`;

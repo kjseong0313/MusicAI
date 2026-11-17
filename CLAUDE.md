@@ -34,6 +34,8 @@ until curl -s "https://kjseong0313.github.io/MusicAI/index.html?cb=$(date +%s%N)
 `get` 도구로 기존 GET 라우트를 빌려 쓴다(`/lyrics`는 이걸 위해 새로 만든 라우트).
 - iTunes 브라우저 직접 호출이 없으므로 검색은 늘 Worker 경로(Deezer → MusicBrainz)다.
 - 검색 그라운딩이 없다. 조성·음역은 모델 기억 + "추정" 표시.
+- 가사 줄 번역만 Gemini다(커넥터의 `gemini` 도구). Claude는 저작권 있는 가사를 통째로
+  번역하지 않는다 — 우회 프롬프트로 뚫으려 하지 말 것. 해석은 Claude가 구절 단위로 쓴다.
 - 모델 선택·무료 한도·호출 간격 코드는 없다. `index.html`을 고치면 여기도 맞춰 줄 것.
 
 ## 검색이 이렇게 생긴 이유

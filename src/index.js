@@ -826,6 +826,18 @@ const MCP_TOOL = {
   },
   annotations: { readOnlyHint: true },
 };
+// 가사 번역 전용. Claude는 저작권 있는 가사를 통째로 번역하지 않아서, 그 한 가지만
+// 기존 Gemini 프록시로 돌린다. 기본 모델은 하루 500회인 Lite.
+const MCP_GEMINI = {
+  name: 'gemini',
+  description: 'Gemini(무료 Lite)에 프롬프트를 보내고 답글을 텍스트로 돌려준다.',
+  inputSchema: {
+    type: 'object',
+    properties: { prompt: { type: 'string' }, system: { type: 'string' } },
+    required: ['prompt'],
+  },
+};
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 async function handleMcp(request, env, ctx) {
   const json = (obj, status = 200) => new Response(obj === null ? null : JSON.stringify(obj), {
@@ -846,7 +858,29 @@ async function handleMcp(request, env, ctx) {
     });
   }
   if (method === 'ping') return ok({});
-  if (method === 'tools/list') return ok({ tools: [MCP_TOOL] });
+  if (method === 'tools/list') return ok({ tools: [MCP_TOOL, MCP_GEMINI] });
+  if (method === 'tools/call' && params?.name === 'gemini') {
+    const { prompt = '', system = '' } = params.arguments || {};
+    const payload = {
+      contents: [{ role: 'user', parts: [{ text: String(prompt) }] }],
+      generationConfig: { temperature: 0.8, maxOutputTokens: 65536 },
+    };
+    if (system) payload.systemInstruction = { parts: [{ text: String(system) }] };
+    const origin = new URL(request.url).origin;
+    const res = await worker.fetch(new Request(origin + '/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: GEMINI_MODEL, payload }),
+    }), env, ctx);
+    const d = await res.json().catch(() => ({}));
+    // 추론 파트(thought)를 빼고 답글 파트를 전부 이어 붙인다. parts[0]만 읽으면 잘린다.
+    const text = (d.candidates?.[0]?.content?.parts || [])
+      .filter(p => p.thought !== true && typeof p.text === 'string').map(p => p.text).join('');
+    if (!text) {
+      const why = d.error?.message || d.candidates?.[0]?.finishReason || `HTTP ${res.status}`;
+      return ok({ content: [{ type: 'text', text: JSON.stringify({ error: `Gemini: ${why}` }) }], isError: true });
+    }
+    return ok({ content: [{ type: 'text', text }] });
+  }
   if (method === 'tools/call') {
     const path = String(params?.arguments?.path || '');
     const route = path.split('?')[0];
